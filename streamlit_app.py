@@ -52,7 +52,6 @@ def unificar_codigos_similares(df):
     if df.empty or 'Código' not in df.columns: return df
     
     unique_codes = df['Código'].dropna().unique()
-    # Ordenar por longitud ascendente para que el código más corto (base) absorba a los que tienen sufijos
     unique_codes = sorted(unique_codes, key=len)
     
     mapping = {}
@@ -61,11 +60,8 @@ def unificar_codigos_similares(df):
             mapping[base] = base
             for other in unique_codes[i+1:]:
                 if other not in mapping:
-                    # 1. Similitud estricta (>= 85-90%)
                     ratio = difflib.SequenceMatcher(None, base.upper(), other.upper()).ratio()
-                    # 2. Que el código base esté contenido dentro del otro (Ej: "FAA0052" dentro de "FAA0052 - Pta DX")
                     is_substring = (base.upper() in other.upper()) and len(base) > 5
-                    
                     if ratio >= 0.85 or is_substring:
                         mapping[other] = base
                         
@@ -203,7 +199,6 @@ tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP (No Conformes)", "🟠 MATRIZ
 # ---------------------------------------------------------
 with tab_scrap:
     if not df_full.empty:
-        # Unificamos RT y RT (GS) visualmente para la matriz
         df_full['ORIGEN_VISUAL'] = df_full['ORIGEN'].replace({'RT (GS)': 'RT'})
         
         df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
@@ -250,6 +245,7 @@ with tab_scrap:
                 x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'],
                 marker_color='#F1C40F', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside'
             ))
+            # OBJETIVO DE SCRAP: 0.5%
             fig_pct.add_hline(y=0.5, line_color="#E67E22", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%")
             fig_pct.update_layout(title="<b>% DE SCRAP MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(title="% Scrap"), margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_pct, use_container_width=True)
@@ -263,55 +259,55 @@ with tab_scrap:
 
         st.divider()
 
-        # --- CUADRÍCULA DINÁMICA DE TOP 10 (Espaciado y RT Único) ---
+        # --- CUADRÍCULA DINÁMICA DE TOP 10 ---
         st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
         
         def plot_top10(df_subset, titulo, color_bar):
+            fig = go.Figure()
+            
+            # Si el DataFrame está vacío o no hay Scrap, devolver un gráfico placeholder limpio
+            if df_subset.empty:
+                fig.update_layout(title=f"<b>{titulo}</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False),
+                                  annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=16, color="gray"))])
+                return fig
+                
             df_top = df_subset.groupby('Código')['Observadas'].sum().reset_index()
             df_top = df_top[df_top['Observadas'] > 0].sort_values('Observadas', ascending=True).tail(10)
-            if df_top.empty: return None
             
-            # Dinámica de tamaño: Evita el cuadrado gigante y da espacio lateral a los números
+            if df_top.empty:
+                fig.update_layout(title=f"<b>{titulo}</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False),
+                                  annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=16, color="gray"))])
+                return fig
+                
             max_val = df_top['Observadas'].max()
-            
             fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
-            fig.update_traces(
-                marker_color=color_bar, 
-                textposition='outside', 
-                textfont=dict(color='black'),
-                width=0.5  # Grosor máximo de barra
-            )
-            fig.update_layout(
-                title=f"<b>{titulo}</b>", 
-                height=350, # Altura fija y uniforme
-                xaxis=dict(visible=False, range=[0, max_val * 1.25]), # Extra espacio a la derecha para el texto
-                yaxis=dict(title="", tickfont=dict(size=11)), 
-                plot_bgcolor='rgba(0,0,0,0)', 
-                margin=dict(t=40, b=10, l=10, r=50) # Margen derecho ampliado
-            )
+            fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'), width=0.5)
+            fig.update_layout(title=f"<b>{titulo}</b>", height=350, xaxis=dict(visible=False, range=[0, max_val * 1.25]), yaxis=dict(title="", tickfont=dict(size=11)), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=50))
             return fig
 
-        chart_cols = st.columns(3)
+        # Coleccionar gráficos
+        figs_to_plot = []
         
         # 1. Gráfico Fijo: SCRAP GENERAL
-        fig_gen = plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E")
-        if fig_gen: chart_cols[0].plotly_chart(fig_gen, use_container_width=True)
+        figs_to_plot.append(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"))
         
         # 2. Gráfico Fijo: RT (Integrando SQL y Google Sheets en uno solo)
-        fig_rt = plot_top10(df_full[df_full['ORIGEN_VISUAL'] == 'RT'], "SCRAP RT (SQL + GS)", "#F39C12")
-        if fig_rt: chart_cols[1].plotly_chart(fig_rt, use_container_width=True)
+        figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == 'RT'], "SCRAP RT (SQL + GS)", "#F39C12"))
         
-        # 3. Iteración Dinámica (Excluyendo 'RT' porque ya lo procesamos arriba)
-        origenes_productivos = [o for o in sorted(df_full['ORIGEN_VISUAL'].unique()) if o != 'RT']
+        # 3. Iteración Dinámica del resto de los orígenes
+        origenes_productivos = [o for o in sorted(df_full['ORIGEN_VISUAL'].unique()) if o != 'RT' and str(o) != 'nan']
         colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
         
-        idx = 2
         for i, orig in enumerate(origenes_productivos):
-            fig = plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)])
-            if fig:
-                chart_cols[idx % 3].plotly_chart(fig, use_container_width=True)
-                idx += 1
+            figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]))
             
+        # Distribuir gráficos en filas de 3 para mantener la estructura firme
+        for i in range(0, len(figs_to_plot), 3):
+            cols = st.columns(3)
+            for j in range(3):
+                if i + j < len(figs_to_plot):
+                    cols[j].plotly_chart(figs_to_plot[i + j], use_container_width=True)
+
     else:
         st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada.")
 
@@ -346,6 +342,8 @@ with tab_rt:
                 x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'],
                 marker_color='#E67E22', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside'
             ))
+            # OBJETIVO DE RT: 2.0%
+            fig_pct_rt.add_hline(y=2.0, line_color="#C0392B", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%")
             fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_pct_rt, use_container_width=True)
             
