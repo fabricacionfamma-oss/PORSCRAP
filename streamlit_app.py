@@ -71,7 +71,7 @@ def unificar_codigos_similares(df):
 col_title, col_btn = st.columns([5, 1])
 with col_title:
     st.markdown('<div class="header-style">📊 INDICADOR GENERAL DE PLANTA (SCRAP Y RT)</div>', unsafe_allow_html=True)
-    st.caption("Métrica exacta: Scrap = 'Pieza No Conforme / Observada' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
+    st.caption("Métrica exacta: Scrap = 'Observadas' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
         st.cache_data.clear()
@@ -120,19 +120,19 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
-        # Extracción de Código de Pieza
+        # 1. Unificar columnas de piezas (Fiat, Renault, Nissan, etc.)
         cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'SOLDADURA', 'QUE PIEZA'])]
         df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
             
-        # Extracción de Cantidad de Scrap
+        # 2. Localizar columna de Scrap ESTRICTA ("Cantidad de Pieza Scrap")
         c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper()), None)
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
         
-        # Extracción de Fecha
-        c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper() or 'TEMPORAL' in c.upper()), None)
+        # 3. Localizar Fecha ESTRICTA (Ignorando 'Fecha de Fabricacion')
+        c_fecha = next((c for c in ['Fecha', 'Marca temporal', 'FECHA'] if c in df_gs.columns), None)
         df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], dayfirst=True, errors='coerce') if c_fecha else pd.NaT
         
-        # Cliente (para el filtro)
+        # Cliente (para el filtro de área)
         c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
@@ -141,8 +141,8 @@ def fetch_gs_annual(gs_url, anio):
         
         if not df_gs.empty:
             df_gs['Mes'] = df_gs['Fecha_DT'].dt.month
-            df_gs['ORIGEN'] = 'RT (GS)'
-            df_gs['Máquina'] = df_gs['Cliente']
+            df_gs['ORIGEN'] = 'RT' # Origen Exclusivo
+            df_gs['Máquina'] = df_gs['Cliente'] # Usamos el cliente para clasificar Estampado vs Soldadura
             df_gs['Buenas'] = 0
             df_gs['Retrabajo'] = 0
             return df_gs[['Mes', 'Máquina', 'ORIGEN', 'Código', 'Buenas', 'Retrabajo', 'Observadas']]
@@ -162,26 +162,27 @@ with col_f2:
 df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
 
-# --- Lógica de Filtro por Área ---
-def asignar_y_filtrar_origen(m, area):
+# --- Lógica de Filtro por Área (Excluyendo RT de SQL) ---
+def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
+    # Descartamos cualquier cosa que se llame RT o Retrabajo en SQL para Scrap
+    if 'RT' in m or 'RETRABAJO' in m: return None 
+    
     if area == "ESTAMPADO (Líneas)":
         if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
         if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
         if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
         if 'MATRIC' in m: return 'MATRICERIA'
         if 'FIREWALL' in m: return 'FIREWALL'
-        if 'RT' in m or 'RETRABAJO' in m: return 'RT'
         return None
     else:
         if 'CELL' in m or 'CELDA' in m: return m 
         if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
-        if 'RT' in m or 'RETRABAJO' in m: return 'RT'
         return None
 
 df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
 if not df_sql_fil.empty:
-    df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen(x, area_sel))
+    df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel))
     df_sql_fil = df_sql_fil[df_sql_fil['ORIGEN'].notnull()]
 
 df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
@@ -204,9 +205,6 @@ tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP (No Conformes)", "🟠 MATRIZ
 # ---------------------------------------------------------
 with tab_scrap:
     if not df_full.empty:
-        # Unificamos RT y RT (GS) visualmente para la matriz
-        df_full['ORIGEN_VISUAL'] = df_full['ORIGEN'].replace({'RT (GS)': 'RT'})
-        
         df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes['Total_Piezas'] = df_mes['Buenas'] + df_mes['Retrabajo'] + df_mes['Scrap']
         df_mes['Pct_Scrap'] = (df_mes['Scrap'] / df_mes['Total_Piezas'].replace(0, 1)) * 100
@@ -227,14 +225,14 @@ with tab_scrap:
         render_dark_table(matriz_general)
 
         # --- MATRIZ POR ORIGEN ---
-        origenes = sorted(df_full['ORIGEN_VISUAL'].unique().tolist())
+        origenes = sorted(df_full['ORIGEN'].unique().tolist())
         matriz_origen = pd.DataFrame(index=origenes)
         for m in range(1, 13):
             mes_str = MESES_MAP[m]
             total_mes_scrap = df_mes_completo[df_mes_completo['Mes'] == m]['Scrap'].values[0]
             
             for orig in origenes:
-                val = df_full[(df_full['ORIGEN_VISUAL'] == orig) & (df_full['Mes'] == m)]['Observadas'].sum()
+                val = df_full[(df_full['ORIGEN'] == orig) & (df_full['Mes'] == m)]['Observadas'].sum()
                 pct = (val / total_mes_scrap * 100) if total_mes_scrap > 0 else 0
                 matriz_origen.loc[orig, mes_str] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
 
@@ -257,9 +255,9 @@ with tab_scrap:
             st.plotly_chart(fig_pct, use_container_width=True)
             
         with col_g2:
-            df_g_origen = df_full.groupby(['Mes', 'ORIGEN_VISUAL'])['Observadas'].sum().reset_index()
+            df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
             df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN_VISUAL', barmode='group', title="<b>SCRAP POR ORIGENES</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES</b>", color_discrete_sequence=px.colors.qualitative.Prism)
             fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
             st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -295,17 +293,17 @@ with tab_scrap:
         # 1. Siempre primero: SCRAP GENERAL
         figs_to_plot.append(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"))
         
-        # 2. Siempre segundo: RT (Integrando SQL y Google Sheets)
-        figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == 'RT'], "SCRAP RT (SQL + GS)", "#F39C12"))
+        # 2. Siempre segundo: RT (Exclusivo Google Sheets)
+        figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT (Solo GS)", "#F39C12"))
         
-        # 3. Resto de orígenes
-        origenes_productivos = [o for o in sorted(df_full['ORIGEN_VISUAL'].unique()) if o != 'RT' and str(o) != 'nan']
+        # 3. Resto de orígenes (SQL)
+        origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan']
         colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
         
         for i, orig in enumerate(origenes_productivos):
-            figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]))
+            figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]))
             
-        # Distribuir gráficos en filas de 3
+        # Dibujar en filas de 3
         for i in range(0, len(figs_to_plot), 3):
             cols = st.columns(3)
             for j in range(3):
