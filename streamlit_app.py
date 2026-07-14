@@ -13,7 +13,7 @@ URL_GS_RT = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvM
 MESES_MAP = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO', 
              7:'JULIO', 8:'AGOSTO', 9:'SEPTIEMBRE', 10:'OCTUBRE', 11:'NOVIEMBRE', 12:'DICIEMBRE'}
 
-st.set_page_config(page_title="Dashboard Gerencial - FAMMA", layout="wide", page_icon="📊")
+st.set_page_config(page_title="RESUMEN SCRAP Y RT", layout="wide", page_icon="📊")
 
 st.markdown("""
 <style>
@@ -70,7 +70,7 @@ def unificar_codigos_similares(df):
 
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.markdown('<div class="header-style">📊 INDICADOR GENERAL DE PLANTA (SCRAP Y RT)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT</div>', unsafe_allow_html=True)
     st.caption("Métrica exacta: Scrap = 'Observadas' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
@@ -141,7 +141,7 @@ def fetch_gs_annual(gs_url, anio):
         
         if not df_gs.empty:
             df_gs['Mes'] = df_gs['Fecha_DT'].dt.month
-            df_gs['ORIGEN'] = 'RT' # Origen Exclusivo
+            df_gs['ORIGEN'] = 'RT' # Origen Exclusivo, ajustado el nombre
             df_gs['Máquina'] = df_gs['Cliente'] # Usamos el cliente para clasificar Estampado vs Soldadura
             df_gs['Buenas'] = 0
             df_gs['Retrabajo'] = 0
@@ -192,13 +192,18 @@ if not df_gs_fil.empty:
 
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
 
+# --- EXCLUIR EL MES EN CURSO SI ES EL AÑO ACTUAL ---
+hoy = pd.to_datetime("today")
+if anio_sel == hoy.year and not df_full_raw.empty:
+    df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
+
 # Aplicar Función de Fusión de Códigos Similares (90% / Substring)
 df_full = unificar_codigos_similares(df_full_raw)
 
 # ==========================================
 # 3. PESTAÑAS DEL DASHBOARD
 # ==========================================
-tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP (No Conformes)", "🟠 MATRIZ DE RETRABAJO (RT)"])
+tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"])
 
 # ---------------------------------------------------------
 # PESTAÑA 1: DASHBOARD SCRAP (EXCEL VIEW)
@@ -293,8 +298,8 @@ with tab_scrap:
         # 1. Siempre primero: SCRAP GENERAL
         figs_to_plot.append(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"))
         
-        # 2. Siempre segundo: RT (Exclusivo Google Sheets)
-        figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT (Solo GS)", "#F39C12"))
+        # 2. Siempre segundo: RT (Corregido nombre de etiqueta)
+        figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F39C12"))
         
         # 3. Resto de orígenes (SQL)
         origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan']
