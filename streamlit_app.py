@@ -11,6 +11,9 @@ URL_GS_RT = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvM
 MESES_MAP = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO', 
              7:'JULIO', 8:'AGOSTO', 9:'SEPTIEMBRE', 10:'OCTUBRE', 11:'NOVIEMBRE', 12:'DICIEMBRE'}
 
+# Configuración de página y estilos
+st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
+
 st.markdown("""
 <style>
     .header-style { font-size: 28px; font-weight: bold; color: #1F2937; margin-bottom: 0px; }
@@ -55,9 +58,10 @@ def unificar_codigos_similares(df):
     df['Código'] = df['Código'].map(mapping).fillna(df['Código'])
     return df
 
+# Encabezado y botón de actualización
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT - FAMMA</div>', unsafe_allow_html=True)
     st.caption("Métrica exacta: Scrap = 'Observadas' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
@@ -66,6 +70,7 @@ with col_btn:
 
 st.divider()
 
+# Funciones de extracción de datos (con caché)
 @st.cache_data(ttl=300)
 def fetch_annual_data(anio):
     try:
@@ -118,15 +123,18 @@ def fetch_gs_annual(gs_url, anio):
     except Exception as e:
         return pd.DataFrame()
 
+# Filtros principales
 col_f1, col_f2 = st.columns([1, 3])
 with col_f1:
     anio_sel = st.selectbox("**Año de Análisis:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
 with col_f2:
     area_sel = st.radio("**Área de Producción:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
 
+# Carga de datos crudos
 df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
 
+# Lógica de filtrado y asignación de origen SQL
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
     if 'RT' in m or 'RETRABAJO' in m: return None 
@@ -154,7 +162,7 @@ if not df_sql_fil.empty:
 else:
     lista_blanca_sql = set()
 
-# PROCESAMIENTO GOOGLE SHEETS
+# PROCESAMIENTO GOOGLE SHEETS (Scrap RT)
 df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
 if not df_gs_fil.empty:
     if len(lista_blanca_sql) > 0:
@@ -163,30 +171,39 @@ if not df_gs_fil.empty:
         df_gs_fil = df_gs_fil[df_gs_fil['Código_Clean'].isin(lista_blanca_sql)]
         df_gs_fil.drop(columns=['Código_Clean'], inplace=True)
     else:
+        # Si no hay producción en SQL, no puede haber scrap de RT validado
         df_gs_fil = pd.DataFrame()
 
-# UNIFICACIÓN DE DATOS
+# UNIFICACIÓN FINAL DE DATOS
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
 
+# Exclusión del mes en curso para el año actual
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
     df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
 
+# Algoritmo de unificación de códigos similares
 df_full = unificar_codigos_similares(df_full_raw)
 
+# --- PESTAÑAS PRINCIPALES ---
 tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"])
 
+# ====== PESTAÑA SCRAP ======
 with tab_scrap:
     if not df_full.empty:
+        # Cálculos mensuales generales
         df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes['Total_Piezas'] = df_mes['Buenas'] + df_mes['Retrabajo'] + df_mes['Scrap']
         df_mes['Pct_Scrap'] = (df_mes['Scrap'] / df_mes['Total_Piezas'].replace(0, 1)) * 100
         
+        # Asegurar meses completos (Ene-Dic)
         df_mes_completo = pd.DataFrame({'Mes': range(1, 13)})
         df_mes_completo = pd.merge(df_mes_completo, df_mes, on='Mes', how='left').fillna(0)
         df_mes_completo['Mes_Nombre'] = df_mes_completo['Mes'].map(MESES_MAP)
         
         st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE SCRAP DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
+        
+        # Matriz 1: General
         matriz_general = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP'])
         for _, row in df_mes_completo.iterrows():
             mes_str = row['Mes_Nombre']
@@ -196,6 +213,7 @@ with tab_scrap:
 
         render_dark_table(matriz_general)
 
+        # Matriz 2: Desglose por Origen
         origenes = sorted(df_full['ORIGEN'].unique().tolist())
         matriz_origen = pd.DataFrame(index=origenes)
         for m in range(1, 13):
@@ -206,11 +224,14 @@ with tab_scrap:
                 pct = (val / total_mes_scrap * 100) if total_mes_scrap > 0 else 0
                 matriz_origen.loc[orig, mes_str] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
 
-        matriz_origen.loc['TOTAL'] = matriz_general.loc['TOTAL SCRAP']
-        render_dark_table(matriz_origen)
+        # Añadir fila de TOTAL a la matriz de origen extraída de la matriz general
+        if not matriz_origen.empty:
+            matriz_origen.loc['TOTAL'] = matriz_general.loc['TOTAL SCRAP']
+            render_dark_table(matriz_origen)
 
         st.divider()
 
+        # Gráficos Principales de Scrap
         col_g1, col_g2 = st.columns(2)
         with col_g1:
             fig_pct = go.Figure()
@@ -222,56 +243,84 @@ with tab_scrap:
         with col_g2:
             df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
             df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES</b>", color_discrete_sequence=px.colors.qualitative.Prism)
-            fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
+            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+            fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad Piezas", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
             st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
+        
+        # --- SECCIÓN TOP 10 CORREGIDA (SOLUCIÓN AL DESORDEN) ---
         st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
         
+        # Función auxiliar para generar gráficos de barras horizontales
         def plot_top10(df_subset, titulo, color_bar):
             fig = go.Figure()
+            empty_layout = lambda t: fig.update_layout(title=f"<b>{t}</b>", height=300, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="gray"))])
+            
             if df_subset is None or df_subset.empty:
-                fig.update_layout(title=f"<b>{titulo}</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=16, color="gray"))])
+                empty_layout(titulo)
                 return fig
+                
             df_top = df_subset.groupby('Código')['Observadas'].sum().reset_index()
             df_top = df_top[df_top['Observadas'] > 0].sort_values('Observadas', ascending=True).tail(10)
+            
             if df_top.empty:
-                fig.update_layout(title=f"<b>{titulo}</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=16, color="gray"))])
+                empty_layout(titulo)
                 return fig
+                
             max_val = df_top['Observadas'].max()
             fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
-            fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'), width=0.5)
-            fig.update_layout(title=f"<b>{titulo}</b>", height=350, xaxis=dict(visible=False, range=[0, max_val * 1.25]), yaxis=dict(title="", tickfont=dict(size=11)), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=50))
+            fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'), width=0.6)
+            fig.update_layout(title=f"<b>{titulo}</b>", height=300, xaxis=dict(visible=False, range=[0, max_val * 1.3]), yaxis=dict(title="", tickfont=dict(size=10)), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40))
             return fig
 
-        cols_grid = st.columns(3)
-        cols_grid[0].plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"), use_container_width=True)
-        cols_grid[1].plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F39C12"), use_container_width=True)
-        
+        # Identificar orígenes productivos (excluyendo RT)
         origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan']
         colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
         
-        idx = 2
+        # Definir la estructura de la cuadrícula (3 columnas)
+        N_COLSTARS = 3
+        
+        # 1. Gráficos Fijos (General y RT) ocupan las primeras 2 columnas de la primera fila
+        row1 = st.columns(N_COLSTARS)
+        row1[0].plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"), use_container_width=True)
+        row1[1].plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F39C12"), use_container_width=True)
+        
+        # 2. Renderizado Dinámico de orígenes productivos empezando en la columna 3 de la fila 1
+        current_col_index = 2 # Empezamos en la tercera columna (índice 2)
+        current_row_container = row1 # Reutilizamos la primera fila contenedora
+        
         for i, orig in enumerate(origenes_productivos):
+            # Si el índice de columna llega a 3, necesitamos crear una nueva fila de contenedores
+            if current_col_index == N_COLSTARS:
+                current_row_container = st.columns(N_COLSTARS)
+                current_col_index = 0 # Reiniciamos índice de columna para la nueva fila
+            
+            # Generar y renderizar gráfico en la columna correspondiente de la fila actual
             fig = plot_top10(df_full[df_full['ORIGEN'] == orig], f"SCRAP - {orig}", colors[i % len(colors)])
-            if fig:
-                grid_cols = st.columns(3) if idx % 3 == 0 and idx > 2 else cols_grid
-                st.columns(3)[idx % 3].plotly_chart(fig, use_container_width=True)
-                idx += 1
+            current_row_container[current_col_index].plotly_chart(fig, use_container_width=True)
+            
+            # Avanzar al siguiente índice de columna
+            current_col_index += 1
+
     else:
         st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada.")
 
+# ====== PESTAÑA RETRABAJO (RT) ======
 with tab_rt:
     if not df_full.empty:
+        # Cálculos mensuales de RT
         df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
         df_mes_rt['Pct_RT'] = (df_mes_rt['Retrabajo'] / df_mes_rt['Total_Piezas'].replace(0, 1)) * 100
+        
         df_mes_completo_rt = pd.DataFrame({'Mes': range(1, 13)})
         df_mes_completo_rt = pd.merge(df_mes_completo_rt, df_mes_rt, on='Mes', how='left').fillna(0)
         df_mes_completo_rt['Mes_Nombre'] = df_mes_completo_rt['Mes'].map(MESES_MAP)
         
         st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
+        
+        # Matriz RT
         matriz_rt = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL RT', '% RT'])
         for _, row in df_mes_completo_rt.iterrows():
             mes_str = row['Mes_Nombre']
@@ -280,6 +329,8 @@ with tab_rt:
             matriz_rt.loc['% RT', mes_str] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_RT']:.2f}%".replace('.', ',')
 
         render_dark_table(matriz_rt)
+        
+        # Gráficos de RT
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             fig_pct_rt = go.Figure()
@@ -287,6 +338,7 @@ with tab_rt:
             fig_pct_rt.add_hline(y=2.0, line_color="#C0392B", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%")
             fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_pct_rt, use_container_width=True)
+            
         with col_r2:
             st.markdown('<div style="margin-top: 40px;"><b>Top 15 Piezas con Mayor Retrabajo (SQL)</b></div>', unsafe_allow_html=True)
             top_rt_df = df_full.groupby('Código')['Retrabajo'].sum().reset_index()
