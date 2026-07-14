@@ -120,18 +120,23 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
+        # Extracción de Código de Pieza
         cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'SOLDADURA', 'QUE PIEZA'])]
         df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
             
+        # Extracción de Cantidad de Scrap
         c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper()), None)
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
         
+        # Extracción de Fecha
         c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper() or 'TEMPORAL' in c.upper()), None)
         df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], dayfirst=True, errors='coerce') if c_fecha else pd.NaT
         
+        # Cliente (para el filtro)
         c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
+        # Filtrado por año
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
         
         if not df_gs.empty:
@@ -199,6 +204,7 @@ tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP (No Conformes)", "🟠 MATRIZ
 # ---------------------------------------------------------
 with tab_scrap:
     if not df_full.empty:
+        # Unificamos RT y RT (GS) visualmente para la matriz
         df_full['ORIGEN_VISUAL'] = df_full['ORIGEN'].replace({'RT (GS)': 'RT'})
         
         df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
@@ -259,14 +265,12 @@ with tab_scrap:
 
         st.divider()
 
-        # --- CUADRÍCULA DINÁMICA DE TOP 10 ---
+        # --- CUADRÍCULA DINÁMICA DE TOP 10 (A PRUEBA DE FALLOS) ---
         st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
         
         def plot_top10(df_subset, titulo, color_bar):
             fig = go.Figure()
-            
-            # Si el DataFrame está vacío o no hay Scrap, devolver un gráfico placeholder limpio
-            if df_subset.empty:
+            if df_subset is None or df_subset.empty:
                 fig.update_layout(title=f"<b>{titulo}</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False),
                                   annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=16, color="gray"))])
                 return fig
@@ -285,23 +289,23 @@ with tab_scrap:
             fig.update_layout(title=f"<b>{titulo}</b>", height=350, xaxis=dict(visible=False, range=[0, max_val * 1.25]), yaxis=dict(title="", tickfont=dict(size=11)), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=50))
             return fig
 
-        # Coleccionar gráficos
+        # Preparamos una lista de figuras
         figs_to_plot = []
         
-        # 1. Gráfico Fijo: SCRAP GENERAL
+        # 1. Siempre primero: SCRAP GENERAL
         figs_to_plot.append(plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E"))
         
-        # 2. Gráfico Fijo: RT (Integrando SQL y Google Sheets en uno solo)
+        # 2. Siempre segundo: RT (Integrando SQL y Google Sheets)
         figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == 'RT'], "SCRAP RT (SQL + GS)", "#F39C12"))
         
-        # 3. Iteración Dinámica del resto de los orígenes
+        # 3. Resto de orígenes
         origenes_productivos = [o for o in sorted(df_full['ORIGEN_VISUAL'].unique()) if o != 'RT' and str(o) != 'nan']
         colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
         
         for i, orig in enumerate(origenes_productivos):
             figs_to_plot.append(plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]))
             
-        # Distribuir gráficos en filas de 3 para mantener la estructura firme
+        # Distribuir gráficos en filas de 3
         for i in range(0, len(figs_to_plot), 3):
             cols = st.columns(3)
             for j in range(3):
