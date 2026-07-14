@@ -23,7 +23,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIÓN RENDERIZADOR DE TABLAS ESTILO EXCEL ---
+# --- FUNCIÓN RENDERIZADOR DE TABLAS ESTILO EXCEL (CORREGIDA) ---
 def render_dark_table(df):
     df_reset = df.reset_index()
     df_reset.rename(columns={'index': ''}, inplace=True)
@@ -35,8 +35,11 @@ def render_dark_table(df):
     html += '</tr>'
     
     for _, row in df_reset.iterrows():
-        is_bold = "font-weight: bold;" if row[0] in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
-        bg_color = "background-color: #F1C40F;" if row[0] in ['% SCRAP', '% RT', 'TOTAL'] else ""
+        # Solución al KeyError: Usar .iloc[0] para buscar por posición
+        header_val = row.iloc[0] 
+        
+        is_bold = "font-weight: bold;" if header_val in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
+        bg_color = "background-color: #F1C40F;" if header_val in ['% SCRAP', '% RT', 'TOTAL'] else ""
         
         html += f'<tr style="{is_bold} {bg_color}">'
         for val in row:
@@ -114,7 +117,7 @@ def fetch_gs_annual(gs_url, anio):
         if not df_gs.empty:
             df_gs['Mes'] = df_gs['Fecha_DT'].dt.month
             df_gs['ORIGEN'] = 'RT (GS)'
-            df_gs['Máquina'] = df_gs['Cliente'] # Guardamos el cliente temporalmente para filtrar Área
+            df_gs['Máquina'] = df_gs['Cliente']
             df_gs['Buenas'] = 0
             df_gs['Retrabajo'] = 0
             return df_gs[['Mes', 'Máquina', 'ORIGEN', 'Código', 'Buenas', 'Retrabajo', 'Observadas']]
@@ -246,14 +249,11 @@ with tab_scrap:
             fig.update_layout(title=f"<b>{titulo}</b>", height=300, xaxis=dict(visible=False), yaxis=dict(title=""), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40))
             return fig
 
-        # Generamos la cuadrícula dinámicamente según las celdas/líneas que existan
         chart_cols = st.columns(3)
         
-        # El primer gráfico siempre es el General
         fig_gen = plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E")
         if fig_gen: chart_cols[0].plotly_chart(fig_gen, use_container_width=True)
         
-        # Iteramos dinámicamente sobre cada origen (Líneas o Celdas)
         origenes_chart = sorted(df_full['ORIGEN_VISUAL'].unique())
         colors = ["#2980B9", "#27AE60", "#E67E22", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
         
