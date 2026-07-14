@@ -3,8 +3,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import re
-from datetime import timedelta
-import calendar
 
 # ==========================================
 # 0. CONFIGURACIÓN Y CONSTANTES
@@ -19,15 +17,38 @@ st.set_page_config(page_title="Dashboard Gerencial - FAMMA", layout="wide", page
 st.markdown("""
 <style>
     .header-style { font-size: 28px; font-weight: bold; color: #1F2937; margin-bottom: 0px; }
-    .sub-header { font-size: 18px; font-weight: bold; color: #34495E; margin-top: 10px; margin-bottom: 10px; }
+    .sub-header { font-size: 20px; font-weight: bold; color: #34495E; margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; }
     hr { margin-top: 1rem; margin-bottom: 1rem; }
-    .stDataFrame { border: 1px solid #ddd; }
+    div[data-testid="stRadio"] > div { background-color: #F8F9F9; padding: 10px; border-radius: 8px; border: 1px solid #D5D8DC; }
 </style>
 """, unsafe_allow_html=True)
+
+# --- FUNCIÓN RENDERIZADOR DE TABLAS ESTILO EXCEL ---
+def render_dark_table(df):
+    df_reset = df.reset_index()
+    df_reset.rename(columns={'index': ''}, inplace=True)
+    
+    html = '<table style="width:100%; border-collapse: collapse; border: 2px solid black; font-family: Arial, sans-serif; font-size: 13px;">'
+    html += '<tr style="background-color: #D5D8DC;">'
+    for col in df_reset.columns:
+        html += f'<th style="border: 1px solid black; padding: 8px; text-align: center;">{col}</th>'
+    html += '</tr>'
+    
+    for _, row in df_reset.iterrows():
+        is_bold = "font-weight: bold;" if row[0] in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
+        bg_color = "background-color: #F1C40F;" if row[0] in ['% SCRAP', '% RT', 'TOTAL'] else ""
+        
+        html += f'<tr style="{is_bold} {bg_color}">'
+        for val in row:
+            html += f'<td style="border: 1px solid black; padding: 6px; text-align: center;">{val}</td>'
+        html += '</tr>'
+    html += '</table><br>'
+    st.markdown(html, unsafe_allow_html=True)
 
 col_title, col_btn = st.columns([5, 1])
 with col_title:
     st.markdown('<div class="header-style">📊 INDICADOR GENERAL DE PLANTA (SCRAP Y RT)</div>', unsafe_allow_html=True)
+    st.caption("Métrica exacta: Scrap = 'Pieza No Conforme / Observada' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
         st.cache_data.clear()
@@ -36,18 +57,12 @@ with col_btn:
 st.divider()
 
 # ==========================================
-# 1. FUNCIONES DE BASE DE DATOS (CON LEFT JOIN Y FECHAS CORREGIDAS)
+# 1. FUNCIONES DE EXTRACCIÓN DE DATOS
 # ==========================================
 @st.cache_data(ttl=300)
 def fetch_annual_data(anio):
-    """
-    Extrae la data anual consolidada de producción, retrabajo y scrap desde SQL Server.
-    Usa LEFT JOIN para no perder registros que no tengan ProductId o CellId.
-    """
     try:
         conn = st.connection("wii_bi", type="sql")
-        
-        # Consulta Anual Principal
         q_anual = f"""
             SELECT p.Month as Mes, 
                    ISNULL(c.Name, 'OTRA') as Máquina, 
@@ -62,23 +77,9 @@ def fetch_annual_data(anio):
             GROUP BY p.Month, c.Name, pr.Code
         """
         df_anual = conn.query(q_anual)
-        
-        # Mapeo de orígenes igual al Excel
-        def asignar_origen(m):
-            m = str(m).strip().upper()
-            if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
-            if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
-            if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
-            if 'MATRIC' in m: return 'MATRICERIA'
-            if 'FIREWALL' in m: return 'FIREWALL'
-            if 'RT' in m or 'RETRABAJO' in m: return 'RT'
-            return 'OTROS'
-
         if not df_anual.empty:
             for col in ['Buenas', 'Retrabajo', 'Observadas']:
                 df_anual[col] = pd.to_numeric(df_anual[col], errors='coerce').fillna(0)
-            df_anual['ORIGEN'] = df_anual['Máquina'].apply(asignar_origen)
-            
         return df_anual
     except Exception as e:
         st.error(f"Error en SQL: {e}")
@@ -86,9 +87,6 @@ def fetch_annual_data(anio):
 
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
-    """
-    Extrae y unifica los datos anuales del Google Sheets para Scrap en RT.
-    """
     try:
         id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', gs_url)
         if not id_match: return pd.DataFrame()
@@ -99,227 +97,182 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
-        # Unificar piezas
         cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'SOLDADURA', 'QUE PIEZA'])]
-        if cols_piezas:
-            df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO')
-        else:
-            df_gs['Código'] = "SIN CÓDIGO"
+        df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
             
-        # Obtener Scrap y Fecha
         c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper()), None)
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
         
         c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper() or 'TEMPORAL' in c.upper()), None)
         df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], dayfirst=True, errors='coerce') if c_fecha else pd.NaT
         
-        # Filtrar por año
+        c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
+        df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
+        
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
         
         if not df_gs.empty:
             df_gs['Mes'] = df_gs['Fecha_DT'].dt.month
             df_gs['ORIGEN'] = 'RT (GS)'
+            df_gs['Máquina'] = df_gs['Cliente'] # Guardamos el cliente temporalmente para filtrar Área
             df_gs['Buenas'] = 0
             df_gs['Retrabajo'] = 0
-            return df_gs[['Mes', 'ORIGEN', 'Código', 'Buenas', 'Retrabajo', 'Observadas']]
-            
+            return df_gs[['Mes', 'Máquina', 'ORIGEN', 'Código', 'Buenas', 'Retrabajo', 'Observadas']]
         return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
 
 # ==========================================
-# 2. FILTROS DE AÑO SUPERIORES
+# 2. SELECTOR DE ÁREA Y FILTROS SUPERIORES
 # ==========================================
-st.write("**Seleccione el año de análisis:**")
-anio_sel = st.selectbox("Año", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023, label_visibility="collapsed")
+col_f1, col_f2 = st.columns([1, 3])
+with col_f1:
+    anio_sel = st.selectbox("**Año de Análisis:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
+with col_f2:
+    area_sel = st.radio("**Área de Producción:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
 
-# Cargar Datos Anuales
 df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
 
-# Combinar SQL y Google Sheets
-if not df_gs.empty:
-    df_full = pd.concat([df_sql, df_gs], ignore_index=True)
-else:
-    df_full = df_sql.copy()
+# --- Lógica de Filtro por Área ---
+def asignar_y_filtrar_origen(m, area):
+    m = str(m).strip().upper()
+    if area == "ESTAMPADO (Líneas)":
+        if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
+        if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
+        if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
+        if 'MATRIC' in m: return 'MATRICERIA'
+        if 'FIREWALL' in m: return 'FIREWALL'
+        if 'RT' in m or 'RETRABAJO' in m: return 'RT'
+        return None
+    else:
+        # En Soldadura conservamos el nombre exacto de la CELDA
+        if 'CELL' in m or 'CELDA' in m: return m 
+        if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
+        if 'RT' in m or 'RETRABAJO' in m: return 'RT'
+        return None
+
+df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
+if not df_sql_fil.empty:
+    df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen(x, area_sel))
+    df_sql_fil = df_sql_fil[df_sql_fil['ORIGEN'].notnull()]
+
+df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
+if not df_gs_fil.empty:
+    df_gs_fil['Area_GS'] = df_gs_fil['Máquina'].str.upper().apply(lambda x: 'ESTAMPADO (Líneas)' if 'ESTAMPADO' in x else 'SOLDADURA (Celdas y PRP)')
+    df_gs_fil = df_gs_fil[df_gs_fil['Area_GS'] == area_sel]
+
+df_full = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
 
 # ==========================================
 # 3. PESTAÑAS DEL DASHBOARD
 # ==========================================
-tab_scrap, tab_rt, tab_pdf = st.tabs([
-    "🔴 DASHBOARD SCRAP (Visual Excel)", 
-    "🟠 DASHBOARD RETRABAJO (RT)", 
-    "📄 GENERADOR PDF"
-])
+tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP (No Conformes)", "🟠 MATRIZ DE RETRABAJO (RT)"])
 
 # ---------------------------------------------------------
-# PESTAÑA 1: DASHBOARD SCRAP (IDÉNTICO AL EXCEL)
+# PESTAÑA 1: DASHBOARD SCRAP (EXCEL VIEW)
 # ---------------------------------------------------------
 with tab_scrap:
     if not df_full.empty:
-        # Calcular Totales Mensuales de la Planta
-        df_mes = df_full.groupby('Mes').agg(
-            Buenas=('Buenas', 'sum'),
-            Retrabajo=('Retrabajo', 'sum'),
-            Scrap=('Observadas', 'sum')
-        ).reset_index()
+        # Unificamos RT y RT (GS) visualmente para la matriz
+        df_full['ORIGEN_VISUAL'] = df_full['ORIGEN'].replace({'RT (GS)': 'RT'})
         
+        df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes['Total_Piezas'] = df_mes['Buenas'] + df_mes['Retrabajo'] + df_mes['Scrap']
         df_mes['Pct_Scrap'] = (df_mes['Scrap'] / df_mes['Total_Piezas'].replace(0, 1)) * 100
         
-        # Asegurar todos los meses del 1 al 12
         df_mes_completo = pd.DataFrame({'Mes': range(1, 13)})
         df_mes_completo = pd.merge(df_mes_completo, df_mes, on='Mes', how='left').fillna(0)
         df_mes_completo['Mes_Nombre'] = df_mes_completo['Mes'].map(MESES_MAP)
         
-        # 1. MATRIZ SUPERIOR: INDICADOR GENERAL DE SCRAP DE PLANTA
-        st.markdown('<div class="sub-header">INDICADOR GENERAL DE SCRAP DE PLANTA</div>', unsafe_allow_html=True)
-        
-        # Transformar para visualización
+        # --- MATRIZ GENERAL ---
+        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE SCRAP - {area_sel}</div>', unsafe_allow_html=True)
         matriz_general = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP'])
         for _, row in df_mes_completo.iterrows():
             mes_str = row['Mes_Nombre']
             matriz_general.loc['TOTAL PIEZAS', mes_str] = f"{int(row['Total_Piezas']):,}".replace(',', '.')
             matriz_general.loc['TOTAL SCRAP', mes_str] = f"{int(row['Scrap']):,}".replace(',', '.')
-            # Evitar error de división por 0 visual (#¡DIV/0!)
-            if row['Total_Piezas'] == 0:
-                matriz_general.loc['% SCRAP', mes_str] = "0,00%"
-            else:
-                matriz_general.loc['% SCRAP', mes_str] = f"{row['Pct_Scrap']:.2f}%".replace('.', ',')
+            matriz_general.loc['% SCRAP', mes_str] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_Scrap']:.2f}%".replace('.', ',')
 
-        st.dataframe(matriz_general, use_container_width=True)
+        render_dark_table(matriz_general)
 
-        # 2. MATRIZ DE ORIGEN (Línea 1, Línea 2...)
-        df_origen = df_full.groupby(['ORIGEN', 'Mes'])['Observadas'].sum().reset_index()
-        origenes = ['LINEA 1', 'LINEA 2', 'LINEA 3', 'RT', 'MATRICERIA', 'FIREWALL', 'RT (GS)', 'OTROS']
-        
+        # --- MATRIZ POR ORIGEN ---
+        origenes = sorted(df_full['ORIGEN_VISUAL'].unique().tolist())
         matriz_origen = pd.DataFrame(index=origenes)
         for m in range(1, 13):
             mes_str = MESES_MAP[m]
             total_mes_scrap = df_mes_completo[df_mes_completo['Mes'] == m]['Scrap'].values[0]
             
             for orig in origenes:
-                val = df_origen[(df_origen['ORIGEN'] == orig) & (df_origen['Mes'] == m)]['Observadas'].sum()
+                val = df_full[(df_full['ORIGEN_VISUAL'] == orig) & (df_full['Mes'] == m)]['Observadas'].sum()
                 pct = (val / total_mes_scrap * 100) if total_mes_scrap > 0 else 0
-                
-                # Juntamos Cantidad y Porcentaje en la misma celda visualmente
-                matriz_origen.loc[orig, mes_str] = f"{int(val)} ({pct:.0f}%)" if val > 0 else "-"
+                matriz_origen.loc[orig, mes_str] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
 
-        # Añadir fila TOTAL a la matriz
         matriz_origen.loc['TOTAL'] = matriz_general.loc['TOTAL SCRAP']
-        
-        # Eliminar filas vacías si no existen (ej: "OTROS")
-        matriz_origen = matriz_origen.loc[(matriz_origen != '-').any(axis=1)]
-        st.dataframe(matriz_origen, use_container_width=True)
+        render_dark_table(matriz_origen)
 
         st.divider()
 
-        # 3. GRÁFICOS DE TENDENCIA (Mitad de pantalla)
+        # --- GRÁFICOS DE TENDENCIA ---
         col_g1, col_g2 = st.columns(2)
-        
         with col_g1:
-            # Gráfico Amarillo de % Scrap Mensual
             fig_pct = go.Figure()
             fig_pct.add_trace(go.Bar(
-                x=df_mes_completo['Mes_Nombre'], 
-                y=df_mes_completo['Pct_Scrap'],
-                marker_color='#F1C40F', # Amarillo Excel
-                text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']],
-                textposition='outside'
+                x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'],
+                marker_color='#F1C40F', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside'
             ))
-            # Línea objetivo (naranja)
-            fig_pct.add_hline(y=0.5, line_color="#E67E22", line_width=2, line_dash="solid", annotation_text="0.50%")
-            
-            fig_pct.update_layout(
-                title="<b>% DE SCRAP MENSUAL</b>",
-                height=350, plot_bgcolor='rgba(0,0,0,0)', 
-                yaxis=dict(title="% Scrap", tickformat=".2f"),
-                margin=dict(t=40, b=20, l=20, r=20)
-            )
+            fig_pct.add_hline(y=0.5, line_color="#E67E22", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%")
+            fig_pct.update_layout(title="<b>% DE SCRAP MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(title="% Scrap"), margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_pct, use_container_width=True)
             
         with col_g2:
-            # Gráfico de Barras Agrupadas por Línea
-            df_g_origen = df_full[df_full['ORIGEN'].isin(['LINEA 1', 'LINEA 2', 'LINEA 3', 'RT', 'MATRICERIA', 'FIREWALL'])]
-            df_g_origen = df_g_origen.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
+            df_g_origen = df_full.groupby(['Mes', 'ORIGEN_VISUAL'])['Observadas'].sum().reset_index()
             df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-            
-            color_map = {'LINEA 1': '#3498DB', 'LINEA 2': '#E67E22', 'LINEA 3': '#95A5A6', 
-                         'RT': '#F1C40F', 'MATRICERIA': '#2980B9', 'FIREWALL': '#2ECC71'}
-                         
-            fig_bar = px.bar(
-                df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', 
-                barmode='group', title="<b>SCRAP POR LÍNEA</b>",
-                color_discrete_map=color_map
-            )
-            fig_bar.update_layout(
-                height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad", xaxis_title="",
-                legend_title="", legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
-                margin=dict(t=40, b=20, l=20, r=20)
-            )
+            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN_VISUAL', barmode='group', title="<b>SCRAP POR ORIGEN / CELDA</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+            fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
             st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
 
-        # 4. TOP 10 CÓDIGOS DE PIEZAS (Abajo - Cuadrícula de 3 columnas)
+        # --- CUADRÍCULA DINÁMICA DE TOP 10 ---
         st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
         
         def plot_top10(df_subset, titulo, color_bar):
-            if df_subset.empty: return None
             df_top = df_subset.groupby('Código')['Observadas'].sum().reset_index()
             df_top = df_top[df_top['Observadas'] > 0].sort_values('Observadas', ascending=True).tail(10)
             if df_top.empty: return None
-            
-            fig = px.bar(
-                df_top, x='Observadas', y='Código', orientation='h', text='Observadas'
-            )
+            fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
             fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'))
-            fig.update_layout(
-                title=f"<b>{titulo}</b>", height=300, 
-                xaxis=dict(visible=False, showgrid=False), yaxis=dict(title=""),
-                plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40)
-            )
+            fig.update_layout(title=f"<b>{titulo}</b>", height=300, xaxis=dict(visible=False), yaxis=dict(title=""), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40))
             return fig
 
-        r1c1, r1c2, r1c3 = st.columns(3)
-        r2c1, r2c2, r2c3 = st.columns(3)
-
-        # Fila 1
-        with r1c1:
-            fig_gen = plot_top10(df_full, "SCRAP GENERAL", "#5D6D7E")
-            if fig_gen: st.plotly_chart(fig_gen, use_container_width=True)
-        with r1c2:
-            fig_rt = plot_top10(df_full[df_full['ORIGEN'].isin(['RT', 'RT (GS)'])], "SCRAP RT (SQL + GS)", "#F39C12")
-            if fig_rt: st.plotly_chart(fig_rt, use_container_width=True)
-        with r1c3:
-            fig_mat = plot_top10(df_full[df_full['ORIGEN'] == 'MATRICERIA'], "SCRAP MATRICERIA", "#2980B9")
-            if fig_mat: st.plotly_chart(fig_mat, use_container_width=True)
-
-        # Fila 2
-        with r2c1:
-            fig_l1 = plot_top10(df_full[df_full['ORIGEN'] == 'LINEA 1'], "SCRAP L1", "#27AE60")
-            if fig_l1: st.plotly_chart(fig_l1, use_container_width=True)
-        with r2c2:
-            fig_l2 = plot_top10(df_full[df_full['ORIGEN'] == 'LINEA 2'], "SCRAP L2", "#E67E22")
-            if fig_l2: st.plotly_chart(fig_l2, use_container_width=True)
-        with r2c3:
-            fig_l3 = plot_top10(df_full[df_full['ORIGEN'] == 'LINEA 3'], "SCRAP L3", "#95A5A6")
-            if fig_l3: st.plotly_chart(fig_l3, use_container_width=True)
+        # Generamos la cuadrícula dinámicamente según las celdas/líneas que existan
+        chart_cols = st.columns(3)
+        
+        # El primer gráfico siempre es el General
+        fig_gen = plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E")
+        if fig_gen: chart_cols[0].plotly_chart(fig_gen, use_container_width=True)
+        
+        # Iteramos dinámicamente sobre cada origen (Líneas o Celdas)
+        origenes_chart = sorted(df_full['ORIGEN_VISUAL'].unique())
+        colors = ["#2980B9", "#27AE60", "#E67E22", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
+        
+        idx = 1
+        for i, orig in enumerate(origenes_chart):
+            fig = plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)])
+            if fig:
+                chart_cols[idx % 3].plotly_chart(fig, use_container_width=True)
+                idx += 1
             
     else:
-        st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel}.")
+        st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada.")
 
 # ---------------------------------------------------------
 # PESTAÑA 2: DASHBOARD RETRABAJO (RT)
 # ---------------------------------------------------------
 with tab_rt:
     if not df_full.empty:
-        df_mes_rt = df_full.groupby('Mes').agg(
-            Buenas=('Buenas', 'sum'),
-            Retrabajo=('Retrabajo', 'sum'),
-            Scrap=('Observadas', 'sum')
-        ).reset_index()
-        
+        df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
         df_mes_rt['Pct_RT'] = (df_mes_rt['Retrabajo'] / df_mes_rt['Total_Piezas'].replace(0, 1)) * 100
         
@@ -327,43 +280,31 @@ with tab_rt:
         df_mes_completo_rt = pd.merge(df_mes_completo_rt, df_mes_rt, on='Mes', how='left').fillna(0)
         df_mes_completo_rt['Mes_Nombre'] = df_mes_completo_rt['Mes'].map(MESES_MAP)
         
-        st.markdown('<div class="sub-header">INDICADOR GENERAL DE RETRABAJO (RT) DE PLANTA</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO - {area_sel}</div>', unsafe_allow_html=True)
         
         matriz_rt = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL RT', '% RT'])
         for _, row in df_mes_completo_rt.iterrows():
             mes_str = row['Mes_Nombre']
             matriz_rt.loc['TOTAL PIEZAS', mes_str] = f"{int(row['Total_Piezas']):,}".replace(',', '.')
             matriz_rt.loc['TOTAL RT', mes_str] = f"{int(row['Retrabajo']):,}".replace(',', '.')
-            if row['Total_Piezas'] == 0:
-                matriz_rt.loc['% RT', mes_str] = "0,00%"
-            else:
-                matriz_rt.loc['% RT', mes_str] = f"{row['Pct_RT']:.2f}%".replace('.', ',')
+            matriz_rt.loc['% RT', mes_str] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_RT']:.2f}%".replace('.', ',')
 
-        st.dataframe(matriz_rt, use_container_width=True)
+        render_dark_table(matriz_rt)
         
-        # Gráficos de RT
         col_r1, col_r2 = st.columns(2)
         with col_r1:
             fig_pct_rt = go.Figure()
             fig_pct_rt.add_trace(go.Bar(
                 x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'],
-                marker_color='#E67E22', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']],
-                textposition='outside'
+                marker_color='#E67E22', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside'
             ))
             fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=20, l=20, r=20))
             st.plotly_chart(fig_pct_rt, use_container_width=True)
             
         with col_r2:
-            st.write("**Top 15 Piezas con Mayor Retrabajo Histórico**")
+            st.markdown('<div style="margin-top: 40px;"><b>Top 15 Piezas con Mayor Retrabajo (SQL)</b></div>', unsafe_allow_html=True)
             top_rt_df = df_full.groupby('Código')['Retrabajo'].sum().reset_index()
             top_rt_df = top_rt_df[top_rt_df['Retrabajo'] > 0].sort_values('Retrabajo', ascending=False).head(15)
             st.dataframe(top_rt_df, column_config={"Código": "Código de Producto", "Retrabajo": st.column_config.NumberColumn("Cantidad RT", format="%d")}, hide_index=True, use_container_width=True)
     else:
-        st.info("No hay registros de Retrabajo.")
-
-# ---------------------------------------------------------
-# PESTAÑA 3: GENERADOR PDF (Solo si se requiere descargar el formato tradicional)
-# ---------------------------------------------------------
-with tab_pdf:
-    st.markdown("### 📄 Generador PDF de Paradas y Horarios")
-    st.info("Para generar los PDF detallados de paradas, horarios y OEE, utiliza este botón. Requiere que primero limpies la caché si cambiaste de año.")
+        st.info("No hay registros de Retrabajo para el área seleccionada.")
