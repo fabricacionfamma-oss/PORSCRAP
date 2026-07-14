@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import re
+import difflib
 
 # ==========================================
 # 0. CONFIGURACIÓN Y CONSTANTES
@@ -23,7 +24,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNCIÓN RENDERIZADOR DE TABLAS ESTILO EXCEL (CORREGIDA) ---
+# --- FUNCIÓN RENDERIZADOR DE TABLAS ESTILO EXCEL ---
 def render_dark_table(df):
     df_reset = df.reset_index()
     df_reset.rename(columns={'index': ''}, inplace=True)
@@ -35,9 +36,7 @@ def render_dark_table(df):
     html += '</tr>'
     
     for _, row in df_reset.iterrows():
-        # Solución al KeyError: Usar .iloc[0] para buscar por posición
         header_val = row.iloc[0] 
-        
         is_bold = "font-weight: bold;" if header_val in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
         bg_color = "background-color: #F1C40F;" if header_val in ['% SCRAP', '% RT', 'TOTAL'] else ""
         
@@ -47,6 +46,31 @@ def render_dark_table(df):
         html += '</tr>'
     html += '</table><br>'
     st.markdown(html, unsafe_allow_html=True)
+
+# --- FUNCIÓN DE FUSIÓN DE CÓDIGOS SIMILARES (90% o Substring) ---
+def unificar_codigos_similares(df):
+    if df.empty or 'Código' not in df.columns: return df
+    
+    unique_codes = df['Código'].dropna().unique()
+    # Ordenar por longitud ascendente para que el código más corto (base) absorba a los que tienen sufijos
+    unique_codes = sorted(unique_codes, key=len)
+    
+    mapping = {}
+    for i, base in enumerate(unique_codes):
+        if base not in mapping:
+            mapping[base] = base
+            for other in unique_codes[i+1:]:
+                if other not in mapping:
+                    # 1. Similitud estricta (>= 85-90%)
+                    ratio = difflib.SequenceMatcher(None, base.upper(), other.upper()).ratio()
+                    # 2. Que el código base esté contenido dentro del otro (Ej: "FAA0052" dentro de "FAA0052 - Pta DX")
+                    is_substring = (base.upper() in other.upper()) and len(base) > 5
+                    
+                    if ratio >= 0.85 or is_substring:
+                        mapping[other] = base
+                        
+    df['Código'] = df['Código'].map(mapping).fillna(df['Código'])
+    return df
 
 col_title, col_btn = st.columns([5, 1])
 with col_title:
@@ -149,7 +173,6 @@ def asignar_y_filtrar_origen(m, area):
         if 'RT' in m or 'RETRABAJO' in m: return 'RT'
         return None
     else:
-        # En Soldadura conservamos el nombre exacto de la CELDA
         if 'CELL' in m or 'CELDA' in m: return m 
         if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
         if 'RT' in m or 'RETRABAJO' in m: return 'RT'
@@ -165,7 +188,10 @@ if not df_gs_fil.empty:
     df_gs_fil['Area_GS'] = df_gs_fil['Máquina'].str.upper().apply(lambda x: 'ESTAMPADO (Líneas)' if 'ESTAMPADO' in x else 'SOLDADURA (Celdas y PRP)')
     df_gs_fil = df_gs_fil[df_gs_fil['Area_GS'] == area_sel]
 
-df_full = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
+df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
+
+# Aplicar Función de Fusión de Códigos Similares (90% / Substring)
+df_full = unificar_codigos_similares(df_full_raw)
 
 # ==========================================
 # 3. PESTAÑAS DEL DASHBOARD
@@ -189,7 +215,7 @@ with tab_scrap:
         df_mes_completo['Mes_Nombre'] = df_mes_completo['Mes'].map(MESES_MAP)
         
         # --- MATRIZ GENERAL ---
-        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE SCRAP - {area_sel}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE SCRAP DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
         matriz_general = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP'])
         for _, row in df_mes_completo.iterrows():
             mes_str = row['Mes_Nombre']
@@ -231,34 +257,56 @@ with tab_scrap:
         with col_g2:
             df_g_origen = df_full.groupby(['Mes', 'ORIGEN_VISUAL'])['Observadas'].sum().reset_index()
             df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN_VISUAL', barmode='group', title="<b>SCRAP POR ORIGEN / CELDA</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+            fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN_VISUAL', barmode='group', title="<b>SCRAP POR ORIGENES</b>", color_discrete_sequence=px.colors.qualitative.Prism)
             fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
             st.plotly_chart(fig_bar, use_container_width=True)
 
         st.divider()
 
-        # --- CUADRÍCULA DINÁMICA DE TOP 10 ---
+        # --- CUADRÍCULA DINÁMICA DE TOP 10 (Espaciado y RT Único) ---
         st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
         
         def plot_top10(df_subset, titulo, color_bar):
             df_top = df_subset.groupby('Código')['Observadas'].sum().reset_index()
             df_top = df_top[df_top['Observadas'] > 0].sort_values('Observadas', ascending=True).tail(10)
             if df_top.empty: return None
+            
+            # Dinámica de tamaño: Evita el cuadrado gigante y da espacio lateral a los números
+            max_val = df_top['Observadas'].max()
+            
             fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
-            fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'))
-            fig.update_layout(title=f"<b>{titulo}</b>", height=300, xaxis=dict(visible=False), yaxis=dict(title=""), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40))
+            fig.update_traces(
+                marker_color=color_bar, 
+                textposition='outside', 
+                textfont=dict(color='black'),
+                width=0.5  # Grosor máximo de barra
+            )
+            fig.update_layout(
+                title=f"<b>{titulo}</b>", 
+                height=350, # Altura fija y uniforme
+                xaxis=dict(visible=False, range=[0, max_val * 1.25]), # Extra espacio a la derecha para el texto
+                yaxis=dict(title="", tickfont=dict(size=11)), 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                margin=dict(t=40, b=10, l=10, r=50) # Margen derecho ampliado
+            )
             return fig
 
         chart_cols = st.columns(3)
         
+        # 1. Gráfico Fijo: SCRAP GENERAL
         fig_gen = plot_top10(df_full, "SCRAP GENERAL (Todo el Área)", "#5D6D7E")
         if fig_gen: chart_cols[0].plotly_chart(fig_gen, use_container_width=True)
         
-        origenes_chart = sorted(df_full['ORIGEN_VISUAL'].unique())
-        colors = ["#2980B9", "#27AE60", "#E67E22", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
+        # 2. Gráfico Fijo: RT (Integrando SQL y Google Sheets en uno solo)
+        fig_rt = plot_top10(df_full[df_full['ORIGEN_VISUAL'] == 'RT'], "SCRAP RT (SQL + GS)", "#F39C12")
+        if fig_rt: chart_cols[1].plotly_chart(fig_rt, use_container_width=True)
         
-        idx = 1
-        for i, orig in enumerate(origenes_chart):
+        # 3. Iteración Dinámica (Excluyendo 'RT' porque ya lo procesamos arriba)
+        origenes_productivos = [o for o in sorted(df_full['ORIGEN_VISUAL'].unique()) if o != 'RT']
+        colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
+        
+        idx = 2
+        for i, orig in enumerate(origenes_productivos):
             fig = plot_top10(df_full[df_full['ORIGEN_VISUAL'] == orig], f"SCRAP - {orig}", colors[i % len(colors)])
             if fig:
                 chart_cols[idx % 3].plotly_chart(fig, use_container_width=True)
@@ -280,7 +328,7 @@ with tab_rt:
         df_mes_completo_rt = pd.merge(df_mes_completo_rt, df_mes_rt, on='Mes', how='left').fillna(0)
         df_mes_completo_rt['Mes_Nombre'] = df_mes_completo_rt['Mes'].map(MESES_MAP)
         
-        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO - {area_sel}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
         
         matriz_rt = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL RT', '% RT'])
         for _, row in df_mes_completo_rt.iterrows():
