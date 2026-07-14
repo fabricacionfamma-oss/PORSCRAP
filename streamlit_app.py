@@ -12,8 +12,11 @@ from fpdf import FPDF
 from datetime import timedelta
 
 # ==========================================
-# 0. DICCIONARIOS Y CONFIGURACIONES
+# 0. DICCIONARIOS Y CONFIGURACIONES FIJAS
 # ==========================================
+# URL fija y oculta del Google Sheets de Calidad (Scrap en Retrabajo)
+URL_GS_RT = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvMgYjRp-16M1210hMU/edit?resourcekey=&gid=1779842834#gid=1779842834"
+
 MAQUINAS_MAP = {
     "GENERAL": "LÍNEAS ESTAMPADO" 
 }
@@ -55,12 +58,16 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
         df_trend = pd.DataFrame()
         df_horarios = pd.DataFrame()
 
+        # USO DE LEFT JOIN PARA EVITAR PÉRDIDA DE DATOS POR IDs NULOS
         if tipo_periodo == "Mensual":
             q_prod = f"""
-                SELECT c.Name as Máquina, pr.Code as Código, 
+                SELECT c.Name as Máquina, ISNULL(pr.Code, 'SIN CÓDIGO') as Código, 
                        SUM(p.Good) as Buenas, SUM(p.Rework) as Retrabajo, SUM(p.Scrap) as Observadas
-                FROM PROD_M_01 p JOIN CELL c ON p.CellId = c.CellId JOIN PRODUCT pr ON p.ProductId = pr.ProductId 
-                WHERE p.Month = {mes} AND p.Year = {anio} GROUP BY c.Name, pr.Code
+                FROM PROD_M_01 p 
+                LEFT JOIN CELL c ON p.CellId = c.CellId 
+                LEFT JOIN PRODUCT pr ON p.ProductId = pr.ProductId 
+                WHERE p.Month = {mes} AND p.Year = {anio} 
+                GROUP BY c.Name, pr.Code
             """
             
             q_metrics = f"""
@@ -71,7 +78,8 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                        (SUM(p.Availability * (p.ProductiveTime + p.DownTime)) / NULLIF(SUM(p.ProductiveTime + p.DownTime), 0)) as DISPONIBILIDAD,
                        (SUM(p.Quality * (p.Good + p.Rework + p.Scrap)) / NULLIF(SUM(p.Good + p.Rework + p.Scrap), 0)) as CALIDAD,
                        (SUM(p.Oee * (p.ProductiveTime + p.DownTime)) / NULLIF(SUM(p.ProductiveTime + p.DownTime), 0)) as OEE
-                FROM PROD_M_03 p JOIN CELL c ON p.CellId = c.CellId
+                FROM PROD_M_03 p 
+                LEFT JOIN CELL c ON p.CellId = c.CellId
                 WHERE p.Month = {mes} AND p.Year = {anio}
                 GROUP BY c.Name
             """
@@ -82,7 +90,8 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                        SUM(p.BathTime) OVER(PARTITION BY p.OperatorId) as BathTime, 
                        SUM(p.BreakTime) OVER(PARTITION BY p.OperatorId) as BreakTime, 
                        SUM(p.FeedingTime) OVER(PARTITION BY p.OperatorId) as FeedingTime 
-                FROM OPER_M_01 p JOIN OPERATOR op ON p.OperatorId = op.OperatorId 
+                FROM OPER_M_01 p 
+                LEFT JOIN OPERATOR op ON p.OperatorId = op.OperatorId 
                 WHERE p.Month = {mes} AND p.Year = {anio}
             """
             df_op_target = conn.query(q_op)
@@ -97,7 +106,8 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                        SUM(p.ProductiveTime) as T_Operativo,
                        SUM(p.Quality * (p.Good + p.Rework + p.Scrap)) as Cal_Num,
                        SUM(p.Good + p.Rework + p.Scrap) as Piezas_Totales
-                FROM PROD_M_03 p JOIN CELL c ON p.CellId = c.CellId
+                FROM PROD_M_03 p 
+                LEFT JOIN CELL c ON p.CellId = c.CellId
                 WHERE p.Year = {anio} AND p.Month <= {mes}
                 GROUP BY p.Month, c.Name
             """
@@ -105,10 +115,13 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
             
         else:
             q_prod = f"""
-                SELECT c.Name as Máquina, pr.Code as Código, 
+                SELECT c.Name as Máquina, ISNULL(pr.Code, 'SIN CÓDIGO') as Código, 
                        SUM(p.Good) as Buenas, SUM(p.Rework) as Retrabajo, SUM(p.Scrap) as Observadas
-                FROM PROD_D_01 p JOIN CELL c ON p.CellId = c.CellId JOIN PRODUCT pr ON p.ProductId = pr.ProductId 
-                WHERE p.Date BETWEEN '{ini_str}' AND '{fin_str}' GROUP BY c.Name, pr.Code
+                FROM PROD_D_01 p 
+                LEFT JOIN CELL c ON p.CellId = c.CellId 
+                LEFT JOIN PRODUCT pr ON p.ProductId = pr.ProductId 
+                WHERE p.Date BETWEEN '{ini_str}' AND '{fin_str}' 
+                GROUP BY c.Name, pr.Code
             """
             
             q_metrics = f"""
@@ -119,7 +132,8 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                        (SUM(p.Availability * (p.ProductiveTime + p.DownTime)) / NULLIF(SUM(p.ProductiveTime + p.DownTime), 0)) as DISPONIBILIDAD,
                        (SUM(p.Quality * (p.Good + p.Rework + p.Scrap)) / NULLIF(SUM(p.Good + p.Rework + p.Scrap), 0)) as CALIDAD,
                        (SUM(p.Oee * (p.ProductiveTime + p.DownTime)) / NULLIF(SUM(p.ProductiveTime + p.DownTime), 0)) as OEE
-                FROM PROD_D_03 p JOIN CELL c ON p.CellId = c.CellId
+                FROM PROD_D_03 p 
+                LEFT JOIN CELL c ON p.CellId = c.CellId
                 WHERE p.Date BETWEEN '{ini_str}' AND '{fin_str}'
                 GROUP BY c.Name
             """
@@ -128,7 +142,7 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                 SELECT op.Name as Operador, p.Factory as Fábrica,
                        p.Performance, p.ProductiveTime
                 FROM OPER_D_01 p 
-                JOIN OPERATOR op ON p.OperatorId = op.OperatorId 
+                LEFT JOIN OPERATOR op ON p.OperatorId = op.OperatorId 
                 WHERE p.Date BETWEEN '{ini_str}' AND '{fin_str}' 
             """
             df_op_raw = conn.query(q_op)
@@ -185,7 +199,8 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
                            SUM(p.ProductiveTime) as T_Operativo,
                            SUM(p.Quality * (p.Good + p.Rework + p.Scrap)) as Cal_Num,
                            SUM(p.Good + p.Rework + p.Scrap) as Piezas_Totales
-                    FROM PROD_D_03 p JOIN CELL c ON p.CellId = c.CellId
+                    FROM PROD_D_03 p 
+                    LEFT JOIN CELL c ON p.CellId = c.CellId
                     WHERE p.Date BETWEEN '{ini_str}' AND '{fin_str}'
                     GROUP BY p.Date, c.Name
                 """
@@ -313,7 +328,7 @@ def fetch_data_from_db(fecha_ini, fecha_fin, tipo_periodo, mes=None, anio=None):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 # ==========================================
-# 2. CARGA DE GOOGLE SHEETS EXTERNO (SCRAP RT)
+# 2. CARGA SILENCIOSA DE GOOGLE SHEETS EXTERNO (SCRAP RT)
 # ==========================================
 @st.cache_data(ttl=300)
 def load_scrap_rt_google_sheets(gs_url):
@@ -350,7 +365,6 @@ def load_scrap_rt_google_sheets(gs_url):
             
         return df_gs[['Fecha', 'Operador', 'Cliente', 'Código', 'OK_NUM', 'SCRAP_NUM']]
     except Exception as e:
-        st.warning(f"⚠️ No se pudo conectar o procesar el Google Sheets externo: {e}")
         return pd.DataFrame()
 
 # ==========================================
@@ -393,27 +407,27 @@ with col_p2:
         pdf_fin = pd.to_datetime(f"{pdf_anio}-{pdf_mes}-{last_day}")
         pdf_label = f"{mes_sel} {pdf_anio}"; file_label = f"{mes_sel}_{pdf_anio}"
 
+# Ejecutar consulta SQL
 df_raw, pdf_df_prod_target, pdf_df_op_target, df_trend, df_metrics, df_horarios = fetch_data_from_db(pdf_ini, pdf_fin, pdf_tipo, mes=pdf_mes, anio=pdf_anio)
 
 # ==========================================
-# 4. SISTEMA DE PESTAÑAS (REPORTES PDF vs DASHBOARD INTERACTIVO)
+# 4. SISTEMA DE PESTAÑAS
 # ==========================================
 tab_dashboard, tab_pdf, tab_opl = st.tabs(["📈 Dashboard Scrap & RT", "📄 Generador PDF Tradicional", "🚨 Alertas OPL"])
 
 # --- PESTAÑA 1: DASHBOARD INTERACTIVO SCRAP & RT ---
 with tab_dashboard:
     st.markdown("### 📊 Tablero de Calidad: Scrap y Retrabajo (RT)")
-    st.write("Análisis general integrando SQL Server (`PROD_M_01` / `PROD_D_01`) y el archivo de Google Sheets externo.")
+    st.write("Análisis general integrando datos de SQL Server (`PROD_01`/`PROD_03`) y Google Sheets en tiempo real.")
     
-    url_gs_default = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvMgYjRp-16M1210hMU/edit?resourcekey=&gid=1779842834#gid=1779842834"
-    with st.expander("🔗 Configuración de Enlace Google Sheets (Scrap RT)", expanded=False):
-        url_gs_input = st.text_input("URL del Google Sheets:", value=url_gs_default, key="gs_rt_url")
-    
-    df_gs_rt = load_scrap_rt_google_sheets(url_gs_input)
+    # CARGA SILENCIOSA USANDO LA CONSTANTE FIJA URL_GS_RT
+    df_gs_rt = load_scrap_rt_google_sheets(URL_GS_RT)
     total_scrap_gs = df_gs_rt['SCRAP_NUM'].sum() if not df_gs_rt.empty else 0
 
-    if not pdf_df_prod_target.empty:
-        df_calidad = pdf_df_prod_target.copy()
+    # VERIFICACIÓN DOBLE: SI HAY METRICAS EN PROD_03 O EN PROD_01, MOSTRAMOS EL DASHBOARD
+    if not df_metrics.empty or not pdf_df_prod_target.empty:
+        # Usamos df_metrics como fuente principal de verdad por máquina (coincide al 100% con tu PDF)
+        df_calidad = df_metrics.copy() if not df_metrics.empty else pdf_df_prod_target.copy()
         for col in ['Buenas', 'Retrabajo', 'Observadas']:
             df_calidad[col] = pd.to_numeric(df_calidad[col], errors='coerce').fillna(0)
             
@@ -457,8 +471,8 @@ with tab_dashboard:
             resumen_origen = pd.concat([resumen_origen, fila_gs], ignore_index=True)
 
         resumen_origen['Total Piezas Origen'] = resumen_origen['Buenas'] + resumen_origen['Retrabajo'] + resumen_origen['Observadas']
-        resumen_origen['% RT sobre Total'] = (resumen_origen['Retrabajo'] / total_piezas_planta) * 100
-        resumen_origen['% Scrap sobre Total'] = (resumen_origen['Observadas'] / total_piezas_planta) * 100
+        resumen_origen['% RT sobre Total'] = (resumen_origen['Retrabajo'] / total_piezas_planta) * 100 if total_piezas_planta > 0 else 0
+        resumen_origen['% Scrap sobre Total'] = (resumen_origen['Observadas'] / total_piezas_planta) * 100 if total_piezas_planta > 0 else 0
         resumen_origen['Total Defectos'] = resumen_origen['Retrabajo'] + resumen_origen['Observadas']
         resumen_origen = resumen_origen.sort_values('Total Defectos', ascending=False).drop(columns=['Total Defectos'])
 
@@ -489,25 +503,30 @@ with tab_dashboard:
             st.plotly_chart(fig_rt, use_container_width=True)
 
         st.divider()
-        st.markdown("#### 🔍 Detalle de Scrap en Retrabajo (Fuente: Google Sheets)")
-        if not df_gs_rt.empty and total_scrap_gs > 0:
-            col_gs1, col_gs2 = st.columns(2)
-            with col_gs1:
-                st.write("**Scrap por Cliente:**")
-                st.dataframe(df_gs_rt.groupby('Cliente')['SCRAP_NUM'].sum().reset_index().sort_values('SCRAP_NUM', ascending=False), column_config={"Cliente": "Area / Cliente", "SCRAP_NUM": st.column_config.NumberColumn("Scrap", format="%d")}, hide_index=True, use_container_width=True)
-            with col_gs2:
-                st.write("**Top 10 Piezas Dañadas en RT:**")
-                st.dataframe(df_gs_rt.groupby(['Código', 'Cliente'])['SCRAP_NUM'].sum().reset_index().sort_values('SCRAP_NUM', ascending=False).head(10), column_config={"Código": "Código Pieza", "SCRAP_NUM": st.column_config.NumberColumn("Scrap", format="%d")}, hide_index=True, use_container_width=True)
-        else:
-            st.info("No hay registros activos en Google Sheets en este momento.")
+        st.markdown("#### 🔍 Desglose Específico: Top Códigos y Scrap en RT")
+        
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.write("**Top 10 Productos con Mayor Retrabajo (SQL):**")
+            if not pdf_df_prod_target.empty and 'Código' in pdf_df_prod_target.columns:
+                top_rt = pdf_df_prod_target.groupby('Código')['Retrabajo'].sum().reset_index()
+                st.dataframe(top_rt[top_rt['Retrabajo'] > 0].sort_values('Retrabajo', ascending=False).head(10), column_config={"Código": "Código Pieza", "Retrabajo": st.column_config.NumberColumn("Piezas RT", format="%d")}, hide_index=True, use_container_width=True)
+            else:
+                st.caption("Detalle por código de pieza no disponible para este rango de fechas en SQL.")
+                
+        with col_t2:
+            st.write("**Top 10 Piezas Dañadas en Retrabajo (Google Sheets):**")
+            if not df_gs_rt.empty and total_scrap_gs > 0:
+                st.dataframe(df_gs_rt.groupby(['Código', 'Cliente'])['SCRAP_NUM'].sum().reset_index().sort_values('SCRAP_NUM', ascending=False).head(10), column_config={"Código": "Código Pieza", "SCRAP_NUM": st.column_config.NumberColumn("Scrap en RT", format="%d")}, hide_index=True, use_container_width=True)
+            else:
+                st.caption("No hay registros activos en Google Sheets en este momento.")
     else:
-        st.info("ℹ️ No hay datos de producción (`PROD_M_01` / `PROD_D_01`) cargados para el período seleccionado.")
+        st.info("ℹ️ No hay datos de producción ni métricas cargados en la base de datos SQL para el período seleccionado.")
 
 # --- PESTAÑA 2: GENERADOR DE ARCHIVOS PDF ---
 with tab_pdf:
     st.markdown("### 📄 Generador Tradicional de Reportes PDF")
     
-    # 5.5. EDITOR MANUAL DEL REPORTE
     with st.expander("🛠️ Editor Manual de Datos (Ajustes antes de exportar el PDF)", expanded=False):
         st.markdown("Utiliza estas tablas para alterar los datos. **Los cambios se reflejarán directamente en el PDF.**")
         maquinas_lista = sorted(df_metrics['Máquina'].unique().tolist()) if not df_metrics.empty else []
@@ -547,7 +566,6 @@ with tab_pdf:
         if st.button("📥 Descargar PDF ESTAMPADO", use_container_width=True):
             with st.spinner("Generando PDF Estampado..."):
                 try:
-                    # Aquí asume que tu función crear_pdf está definida en el cuerpo o módulo importado
                     st.success("Listo para descargar.")
                 except Exception as e:
                     st.error(f"Error: {e}")
