@@ -130,10 +130,16 @@ st.markdown("""
         height: 3px !important;
     }
 
-    /* 6. Checkbox */
+    /* 6. Checkbox y Expander */
     div[data-testid="stCheckbox"] label span,
-    div[data-testid="stCheckbox"] label p {
+    div[data-testid="stCheckbox"] label p,
+    div[data-testid="stExpander"] details summary p {
         color: #F8FAFC !important;
+    }
+    div[data-testid="stExpander"] {
+        background-color: #1E293B !important;
+        border: 1px solid #38BDF8 !important;
+        border-radius: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -332,6 +338,15 @@ df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
 lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
+# --- BLOQUE DE DIAGNÓSTICO TEMPORAL PARA MÁQUINAS SQL ---
+if not df_sql.empty:
+    with st.expander("🕵️ DIAGNÓSTICO: Ver todas las máquinas que llegan de SQL y sus piezas"):
+        st.markdown("Este cuadro muestra todas las máquinas que hay en la base de datos de Wiidem **antes de aplicar los filtros por Área**. Te ayudará a detectar qué máquinas ocultas suman piezas:")
+        resumen_maquinas = df_sql.groupby('Máquina')[['Buenas', 'Retrabajo', 'Observadas']].sum()
+        resumen_maquinas['Total_Piezas'] = resumen_maquinas.sum(axis=1)
+        st.dataframe(resumen_maquinas.sort_values('Total_Piezas', ascending=False), use_container_width=True)
+# --------------------------------------------------------
+
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
     if 'RT' in m or 'RETRABAJO' in m: return None 
@@ -341,6 +356,10 @@ def asignar_y_filtrar_origen_sql(m, area):
         if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
         if 'MATRIC' in m: return 'MATRICERIA'
         if 'FIREWALL' in m: return 'FIREWALL'
+        
+        # --- MEJORA: Para no perder piezas de Wiidem, si no es una celda de soldadura lo enviamos a "OTRAS ESTAMPADO" ---
+        if not any(k in m for k in ['CELL', 'CELDA', 'PRP', 'SOLD']):
+            return 'OTRAS ESTAMPADO'
         return None
     else:
         if 'CELL' in m or 'CELDA' in m: return m 
@@ -363,7 +382,7 @@ df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sq
 
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
-    # --- AJUSTADO: Se excluye el mes actual (<) para mostrar solo los meses finalizados/cerrados ---
+    # --- AJUSTADO: Se excluye el mes en curso (<) para mostrar únicamente los meses ya completados ---
     df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
