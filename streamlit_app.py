@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste extremo para Pestañas)
+# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste extremo en Tabs)
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -111,37 +111,42 @@ st.markdown("""
         color: #38BDF8 !important;
     }
 
-    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE BLINDADO PARA TODAS LAS VERSIONES */
-    div[data-testid="stTabs"] button[role="tab"],
-    button[data-baseweb="tab"],
-    button[data-testid="stTab"] {
-        background-color: transparent !important;
+    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE BLINDADO */
+    
+    /* Eliminar la transparencia nativa del botón */
+    div[data-testid="stTabs"] button[role="tab"] {
         opacity: 1 !important;
+        background-color: transparent !important;
         padding-bottom: 12px !important;
     }
-    /* Texto de pestaña INACTIVA (Blanco puro, sin opacidad reducida) */
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] *,
-    button[data-baseweb="tab"][aria-selected="false"] *,
-    button[data-testid="stTab"][aria-selected="false"] * {
+    
+    /* Color de Pestaña INACTIVA (Forzando blanco puro) */
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] p,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] span,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] div {
         color: #FFFFFF !important;
+        opacity: 1 !important;
         font-weight: 700 !important;
         font-size: 16px !important;
-        opacity: 1 !important;
     }
-    /* Texto de pestaña ACTIVA (Celeste brillante ultra destacado) */
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] *,
-    button[data-baseweb="tab"][aria-selected="true"] *,
-    button[data-testid="stTab"][aria-selected="true"] * {
+    
+    /* Color de Pestaña ACTIVA (Forzando celeste y pisando el rojo por defecto) */
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] span,
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
         color: #38BDF8 !important;
         font-weight: 800 !important;
         font-size: 16px !important;
         opacity: 1 !important;
     }
-    /* Línea indicadora inferior */
-    div[data-baseweb="tab-highlight"],
+    
+    /* Cambiar el subrayado rojo inferior por celeste */
     div[data-testid="stTabs"] div[data-baseweb="tab-highlight"] {
         background-color: #38BDF8 !important;
         height: 4px !important;
+    }
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+        border-bottom-color: #38BDF8 !important;
     }
 
     /* 6. Checkbox */
