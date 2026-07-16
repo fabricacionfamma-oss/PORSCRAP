@@ -270,7 +270,6 @@ def fetch_annual_data(anio):
         st.error(f"Error en SQL: {e}")
         return pd.DataFrame()
 
-# --- CORRECCIÓN CRÍTICA EN LA LECTURA DE GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
     try:
@@ -282,24 +281,20 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
-        # 1. Unificar Código: Busca en orden las columnas Piezas Fiat, Piezas Renault, Piezas Nissan, Que pieza va a retrabajo, etc.
         cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA'])]
         if cols_piezas:
             df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO')
         else:
             df_gs['Código'] = "SIN CÓDIGO"
             
-        # 2. Captura exacta de Scrap: Busca la columna específica 'Cantidad de Pieza Scrap' o similar
         c_scrap = next((c for c in df_gs.columns if 'PIEZA SCRAP' in c.upper() or 'CANTIDAD DE PIEZA SCRAP' in c.upper()), None)
         if not c_scrap:
             c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper() and 'RT' not in c.upper()), None)
             
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
         
-        # 3. Conversión inteligente de fecha (Soporta M/D/YYYY como en tu imagen sin generar NaT en junio)
         c_fecha = next((c for c in ['Fecha', 'Marca temporal', 'FECHA'] if c in df_gs.columns), None)
         if c_fecha:
-            # Primero intenta formato M/D/Y (común en tu Sheets), si falla va al automático
             df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], format='%m/%d/%Y', errors='coerce')
             df_gs['Fecha_DT'] = df_gs['Fecha_DT'].fillna(pd.to_datetime(df_gs[c_fecha], errors='coerce'))
         else:
@@ -308,7 +303,6 @@ def fetch_gs_annual(gs_url, anio):
         c_cliente = next((c for c in ['Cliente', 'CLIENTE'] if c in df_gs.columns), None)
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
-        # Filtrar por el año seleccionado y sólo filas con Scrap > 0
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
         df_gs = df_gs[df_gs['Observadas'] > 0]
         
@@ -363,15 +357,14 @@ lista_blanca_sql = set(df_sql_fil['Código'].str.strip().str.upper().unique()) i
 
 df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
 if not df_gs_fil.empty:
-    # --- CORRECCIÓN: Si el código de Google Sheets no está en SQL, no lo borra, lo mantiene y limpia espacios ---
     df_gs_fil['Código'] = df_gs_fil['Código'].str.strip().str.upper()
 
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
 
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
-    # --- CORRECCIÓN: Ahora permite ver hasta el mes actual (<=) en lugar de ocultarlo (<) ---
-    df_full_raw = df_full_raw[df_full_raw['Mes'] <= hoy.month]
+    # --- AJUSTADO: Se excluye el mes actual (<) para mostrar solo los meses finalizados/cerrados ---
+    df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
 
