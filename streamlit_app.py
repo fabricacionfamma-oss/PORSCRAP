@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste corregido en widgets)
+# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste total en Tabs y Widgets)
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -43,16 +43,15 @@ st.markdown("""
         margin-top: 1rem; 
         margin-bottom: 1rem; 
     }
-    /* Contenedores con borde de Streamlit */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #1E293B !important;
         border: 1px solid #334155 !important;
         border-radius: 8px;
     }
     
-    /* --- CORRECCIÓN DE CONTRASTE EN BOTONES Y WIDGETS --- */
+    /* --- CORRECCIÓN DE CONTRASTE EN WIDGETS Y PESTAÑAS --- */
     
-    /* 1. Botones (Actualizar Datos) */
+    /* 1. Botón Actualizar Datos */
     div[data-testid="stButton"] button {
         background-color: #1E293B !important;
         color: #F8FAFC !important;
@@ -76,7 +75,7 @@ st.markdown("""
         color: #F8FAFC !important; 
     }
 
-    /* 3. Radio Buttons (Área de producción y Vista) */
+    /* 3. Radio Buttons */
     div[data-testid="stRadio"] > div { 
         background-color: #1E293B !important; 
         padding: 10px !important; 
@@ -90,7 +89,7 @@ st.markdown("""
         font-weight: 500 !important;
     }
 
-    /* 4. Selectbox (Año de Análisis) */
+    /* 4. Selectbox */
     div[data-baseweb="select"] > div {
         background-color: #1E293B !important;
         color: #F8FAFC !important;
@@ -112,23 +111,26 @@ st.markdown("""
         color: #38BDF8 !important;
     }
 
-    /* 5. Pestañas (Tabs: Scrap vs RT) */
-    button[data-baseweb="tab"] {
-        color: #64748B !important; /* Slate gris claro para inactivos */
-        font-weight: bold !important;
-        font-size: 15px !important;
+    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE */
+    button[role="tab"], button[data-baseweb="tab"] {
+        background-color: transparent !important;
+        color: #E2E8F0 !important; /* Gris claro brillante para pestañas inactivas */
+        font-weight: 700 !important;
+        font-size: 16px !important;
+        padding-bottom: 10px !important;
     }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #38BDF8 !important; /* Celeste brillante para activo */
+    button[role="tab"] *, button[data-baseweb="tab"] * {
+        color: #E2E8F0 !important;
     }
-    button[data-baseweb="tab"]:hover {
-        color: #F8FAFC !important;
+    button[role="tab"][aria-selected="true"] *, button[data-baseweb="tab"][aria-selected="true"] * {
+        color: #38BDF8 !important; /* Celeste brillante para la pestaña activa */
     }
     div[data-baseweb="tab-highlight"] {
         background-color: #38BDF8 !important;
+        height: 3px !important;
     }
 
-    /* 6. Checkbox (Ignorar Piezas H) */
+    /* 6. Checkbox */
     div[data-testid="stCheckbox"] label span,
     div[data-testid="stCheckbox"] label p {
         color: #F8FAFC !important;
@@ -204,10 +206,12 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
         return df[~df['Código'].isin(codes_to_remove)].copy()
     return df
 
+# Gráficos Top 10 con textos claros
 def plot_top10(df_subset, titulo, color_bar):
     fig = go.Figure()
     empty_layout = lambda t: fig.update_layout(
-        title=f"<b>{t}</b>", height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        title=dict(text=f"<b>{t}</b>", font=dict(color="#F8FAFC", size=14)), 
+        height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color="#F8FAFC"), xaxis=dict(visible=False), yaxis=dict(visible=False), 
         annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))], 
         margin=dict(t=40, b=10, l=10, r=10)
@@ -226,15 +230,16 @@ def plot_top10(df_subset, titulo, color_bar):
         
     max_val = df_top['Observadas'].max()
     fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
-    fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC'), width=0.6)
+    fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
     fig.update_layout(
-        title=f"<b>{titulo}</b>", height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=14)), 
+        height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color="#F8FAFC"), xaxis=dict(visible=False, range=[0, max_val * 1.3]), 
-        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40)
+        yaxis=dict(title="", tickfont=dict(size=11, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40)
     )
     return fig
 
-# Encabezado sin leyenda y con botón de actualización
+# Encabezado principal y botón
 col_title, col_btn = st.columns([5, 1])
 with col_title:
     st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT - FAMMA</div>', unsafe_allow_html=True)
@@ -408,9 +413,14 @@ with tab_scrap:
             with col_g1:
                 with st.container(border=True):
                     fig_pct = go.Figure()
-                    fig_pct.add_trace(go.Bar(x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'], marker_color='#F59E0B', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside', textfont=dict(color="#F8FAFC")))
-                    fig_pct.add_hline(y=0.5, line_color="#38BDF8", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%", annotation_font=dict(color="#38BDF8"))
-                    fig_pct.update_layout(title="<b>% DE SCRAP MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="% Scrap", gridcolor="#334155"), margin=dict(t=40, b=20, l=20, r=20))
+                    fig_pct.add_trace(go.Bar(x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'], marker_color='#F59E0B', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside', textfont=dict(color="#F8FAFC", size=11)))
+                    fig_pct.add_hline(y=0.5, line_color="#38BDF8", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%", annotation_font=dict(color="#38BDF8", size=12))
+                    fig_pct.update_layout(
+                        title=dict(text="<b>% DE SCRAP MENSUAL</b>", font=dict(color="#F8FAFC", size=15)), 
+                        height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+                        font=dict(color="#F8FAFC"), yaxis=dict(title="% Scrap", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
+                        xaxis=dict(tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20)
+                    )
                     st.plotly_chart(fig_pct, use_container_width=True)
                 
             with col_g2:
@@ -418,7 +428,13 @@ with tab_scrap:
                     df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
                     df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
                     fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
-                    fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas", gridcolor="#334155"), xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
+                    fig_bar.update_layout(
+                        title=dict(font=dict(color="#F8FAFC", size=15)),
+                        height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+                        font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
+                        xaxis=dict(title="", tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20), 
+                        legend=dict(title=dict(text="<b>ORIGEN</b>", font=dict(color="#F8FAFC")), font=dict(color="#F8FAFC"))
+                    )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
             st.divider()
@@ -471,8 +487,11 @@ with tab_scrap:
                 with row1_m[1].container(border=True):
                     if total_scrap_mes > 0:
                         fig_pie = px.pie(df_tabla_mes, values='Observadas', names='ORIGEN', color_discrete_sequence=px.colors.qualitative.Pastel)
-                        fig_pie.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000"))
-                        fig_pie.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, paper_bgcolor='rgba(0,0,0,0)')
+                        fig_pie.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000", size=12))
+                        fig_pie.update_layout(
+                            height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, 
+                            paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC")
+                        )
                         st.plotly_chart(fig_pie, use_container_width=True)
                     else:
                         st.info("Sin Scrap este mes")
@@ -527,14 +546,19 @@ with tab_rt:
         with col_r1:
             with st.container(border=True):
                 fig_pct_rt = go.Figure()
-                fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#38BDF8', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside', textfont=dict(color="#F8FAFC")))
-                fig_pct_rt.add_hline(y=2.0, line_color="#EF4444", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%", annotation_font=dict(color="#EF4444"))
-                fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(gridcolor="#334155"), margin=dict(t=40, b=20, l=20, r=20))
+                fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#38BDF8', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside', textfont=dict(color="#F8FAFC", size=11)))
+                fig_pct_rt.add_hline(y=2.0, line_color="#EF4444", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%", annotation_font=dict(color="#EF4444", size=12))
+                fig_pct_rt.update_layout(
+                    title=dict(text="<b>% DE RT MENSUAL</b>", font=dict(color="#F8FAFC", size=15)), 
+                    height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+                    font=dict(color="#F8FAFC"), yaxis=dict(title="% Retrabajo", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
+                    xaxis=dict(tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20)
+                )
                 st.plotly_chart(fig_pct_rt, use_container_width=True)
             
         with col_r2:
             with st.container(border=True):
-                st.markdown('<div style="margin-top: 10px; margin-bottom: 15px;"><b>Top 15 Piezas con Mayor Retrabajo (SQL)</b></div>', unsafe_allow_html=True)
+                st.markdown('<div style="margin-top: 10px; margin-bottom: 15px; color:#F8FAFC;"><b>Top 15 Piezas con Mayor Retrabajo (SQL)</b></div>', unsafe_allow_html=True)
                 top_rt_df = df_full.groupby('Código')['Retrabajo'].sum().reset_index()
                 top_rt_df = top_rt_df[top_rt_df['Retrabajo'] > 0].sort_values('Retrabajo', ascending=False).head(15)
                 st.dataframe(top_rt_df, column_config={"Código": "Código de Producto", "Retrabajo": st.column_config.NumberColumn("Cantidad RT", format="%d")}, hide_index=True, use_container_width=True)
