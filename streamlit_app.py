@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste extremo en Tabs)
+# Estilos CSS - Modo Oscuro Azul Marino / Slate
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -111,42 +111,34 @@ st.markdown("""
         color: #38BDF8 !important;
     }
 
-    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE BLINDADO */
-    
-    /* Eliminar la transparencia nativa del botón */
-    div[data-testid="stTabs"] button[role="tab"] {
-        opacity: 1 !important;
-        background-color: transparent !important;
-        padding-bottom: 12px !important;
+    /* 5. PESTAÑAS (TABS) - REDISEÑO TIPO BOTÓN SOLIDO (INFALIBLE) */
+    button[data-baseweb="tab"] {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-bottom: none !important;
+        border-radius: 8px 8px 0 0 !important;
+        margin-right: 5px !important;
+        padding: 10px 20px !important;
+        opacity: 1 !important; /* Elimina la transparencia nativa */
     }
-    
-    /* Color de Pestaña INACTIVA (Forzando blanco puro) */
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] p,
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] span,
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] div {
-        color: #FFFFFF !important;
+    /* Pestaña inactiva: Fondo azul pizarra, texto blanco brillante */
+    button[data-baseweb="tab"][aria-selected="false"] * {
+        color: #F8FAFC !important;
         opacity: 1 !important;
-        font-weight: 700 !important;
-        font-size: 16px !important;
+        font-weight: 600 !important;
     }
-    
-    /* Color de Pestaña ACTIVA (Forzando celeste y pisando el rojo por defecto) */
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p,
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] span,
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] div {
-        color: #38BDF8 !important;
-        font-weight: 800 !important;
-        font-size: 16px !important;
-        opacity: 1 !important;
-    }
-    
-    /* Cambiar el subrayado rojo inferior por celeste */
-    div[data-testid="stTabs"] div[data-baseweb="tab-highlight"] {
+    /* Pestaña activa: Fondo Celeste puro, texto oscuro para máximo contraste */
+    button[data-baseweb="tab"][aria-selected="true"] {
         background-color: #38BDF8 !important;
-        height: 4px !important;
+        border-color: #38BDF8 !important;
     }
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-        border-bottom-color: #38BDF8 !important;
+    button[data-baseweb="tab"][aria-selected="true"] * {
+        color: #0F172A !important;
+        font-weight: 900 !important;
+    }
+    /* Ocultar la línea roja molesta de Streamlit */
+    div[data-baseweb="tab-highlight"] {
+        display: none !important;
     }
 
     /* 6. Checkbox */
