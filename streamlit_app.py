@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste blindado en Tabs y Widgets)
+# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste extremo para Pestañas)
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -49,7 +49,7 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    /* --- CORRECCIÓN DE CONTRASTE EN WIDGETS Y PESTAÑAS --- */
+    /* --- CORRECCIÓN DE CONTRASTE EN WIDGETS --- */
     
     /* 1. Botón Actualizar Datos */
     div[data-testid="stButton"] button {
@@ -111,30 +111,35 @@ st.markdown("""
         color: #38BDF8 !important;
     }
 
-    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE BLINDADO */
-    button[data-baseweb="tab"] {
+    /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE BLINDADO PARA TODAS LAS VERSIONES */
+    div[data-testid="stTabs"] button[role="tab"],
+    button[data-baseweb="tab"],
+    button[data-testid="stTab"] {
         background-color: transparent !important;
         opacity: 1 !important;
         padding-bottom: 12px !important;
     }
-    /* Texto de pestaña INACTIVA (Blanco brillante y 100% visible) */
-    button[data-baseweb="tab"] > div,
-    button[data-baseweb="tab"] span,
-    button[data-baseweb="tab"] p {
-        color: #F8FAFC !important;
+    /* Texto de pestaña INACTIVA (Blanco puro, sin opacidad reducida) */
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="false"] *,
+    button[data-baseweb="tab"][aria-selected="false"] *,
+    button[data-testid="stTab"][aria-selected="false"] * {
+        color: #FFFFFF !important;
         font-weight: 700 !important;
-        font-size: 17px !important;
-        opacity: 0.9 !important;
-    }
-    /* Texto de pestaña ACTIVA (Celeste brillante ultra destacado) */
-    button[data-baseweb="tab"][aria-selected="true"] > div,
-    button[data-baseweb="tab"][aria-selected="true"] span,
-    button[data-baseweb="tab"][aria-selected="true"] p {
-        color: #38BDF8 !important;
-        font-weight: 800 !important;
+        font-size: 16px !important;
         opacity: 1 !important;
     }
-    div[data-baseweb="tab-highlight"] {
+    /* Texto de pestaña ACTIVA (Celeste brillante ultra destacado) */
+    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] *,
+    button[data-baseweb="tab"][aria-selected="true"] *,
+    button[data-testid="stTab"][aria-selected="true"] * {
+        color: #38BDF8 !important;
+        font-weight: 800 !important;
+        font-size: 16px !important;
+        opacity: 1 !important;
+    }
+    /* Línea indicadora inferior */
+    div[data-baseweb="tab-highlight"],
+    div[data-testid="stTabs"] div[data-baseweb="tab-highlight"] {
         background-color: #38BDF8 !important;
         height: 4px !important;
     }
@@ -341,7 +346,7 @@ df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
 lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
-# --- LÓGICA DE CLASIFICACIÓN BLINDADA (SIN PÉRDIDA DE PIEZAS) ---
+# --- LÓGICA DE CLASIFICACIÓN BLINDADA ---
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
     if 'RT' in m or 'RETRABAJO' in m: return None 
@@ -384,7 +389,7 @@ df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sq
 
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
-    # --- Se excluye el mes en curso (<) para trabajar solo con meses cerrados ---
+    # Se excluye el mes en curso (<) para trabajar solo con meses cerrados
     df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
