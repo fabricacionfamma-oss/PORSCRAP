@@ -75,7 +75,7 @@ st.markdown("""
         color: #F8FAFC !important; 
     }
 
-    /* 3. Radio Buttons */
+    /* 3. Radio Buttons (Aplicará ahora también para el menú principal) */
     div[data-testid="stRadio"] > div { 
         background-color: #1E293B !important; 
         padding: 10px !important; 
@@ -86,7 +86,8 @@ st.markdown("""
     div[role="radiogroup"] label div span,
     div[data-testid="stRadio"] label p {
         color: #F8FAFC !important;
-        font-weight: 500 !important;
+        font-weight: 700 !important; /* Más negrita para resaltar */
+        font-size: 15px !important;
     }
 
     /* 4. Selectbox */
@@ -111,37 +112,7 @@ st.markdown("""
         color: #38BDF8 !important;
     }
 
-    /* 5. PESTAÑAS (TABS) - REDISEÑO TIPO BOTÓN SOLIDO (INFALIBLE) */
-    button[data-baseweb="tab"] {
-        background-color: #1E293B !important;
-        border: 1px solid #334155 !important;
-        border-bottom: none !important;
-        border-radius: 8px 8px 0 0 !important;
-        margin-right: 5px !important;
-        padding: 10px 20px !important;
-        opacity: 1 !important; /* Elimina la transparencia nativa */
-    }
-    /* Pestaña inactiva: Fondo azul pizarra, texto blanco brillante */
-    button[data-baseweb="tab"][aria-selected="false"] * {
-        color: #F8FAFC !important;
-        opacity: 1 !important;
-        font-weight: 600 !important;
-    }
-    /* Pestaña activa: Fondo Celeste puro, texto oscuro para máximo contraste */
-    button[data-baseweb="tab"][aria-selected="true"] {
-        background-color: #38BDF8 !important;
-        border-color: #38BDF8 !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] * {
-        color: #0F172A !important;
-        font-weight: 900 !important;
-    }
-    /* Ocultar la línea roja molesta de Streamlit */
-    div[data-baseweb="tab-highlight"] {
-        display: none !important;
-    }
-
-    /* 6. Checkbox */
+    /* 5. Checkbox */
     div[data-testid="stCheckbox"] label span,
     div[data-testid="stCheckbox"] label p {
         color: #F8FAFC !important;
@@ -397,11 +368,17 @@ if ignorar_h and not df_full.empty:
 origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan'] if not df_full.empty else []
 colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#F1C40F", "#34495E", "#16A085", "#8E44AD", "#D35400", "#27AE60"]
 
-# --- PESTAÑAS PRINCIPALES ---
-tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"])
+# --- REEMPLAZO DE PESTAÑAS (TABS) POR RADIO BUTTONS PARA CONTRASTE PERFECTO ---
+st.markdown("<br>", unsafe_allow_html=True)
+panel_principal = st.radio(
+    "**Seleccione el Panel de Análisis:**", 
+    ["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"], 
+    horizontal=True,
+    label_visibility="collapsed"
+)
 
-# ====== PESTAÑA SCRAP ======
-with tab_scrap:
+# ====== PANEL SCRAP ======
+if panel_principal == "🔴 MATRIZ DE SCRAP":
     if not df_full.empty:
         col_t1, col_t2 = st.columns([1, 2])
         with col_t1:
@@ -554,8 +531,8 @@ with tab_scrap:
     else:
         st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada.")
 
-# ====== PESTAÑA RETRABAJO (RT) ======
-with tab_rt:
+# ====== PANEL RETRABAJO (RT) ======
+elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
     if not df_full.empty:
         df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
         df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
