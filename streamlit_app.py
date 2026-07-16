@@ -75,7 +75,7 @@ st.markdown("""
         color: #F8FAFC !important; 
     }
 
-    /* 3. Radio Buttons (Aplicará ahora también para el menú principal) */
+    /* 3. Radio Buttons */
     div[data-testid="stRadio"] > div { 
         background-color: #1E293B !important; 
         padding: 10px !important; 
@@ -86,7 +86,7 @@ st.markdown("""
     div[role="radiogroup"] label div span,
     div[data-testid="stRadio"] label p {
         color: #F8FAFC !important;
-        font-weight: 700 !important; /* Más negrita para resaltar */
+        font-weight: 700 !important;
         font-size: 15px !important;
     }
 
@@ -188,8 +188,8 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
         return df[~df['Código'].isin(codes_to_remove)].copy()
     return df
 
-# Gráficos Top 10 con textos claros
-def plot_top10(df_subset, titulo, color_bar):
+# Gráficos Top 10 con textos claros - AHORA GENÉRICO PARA SCRAP O RETRABAJO
+def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
     fig = go.Figure()
     empty_layout = lambda t: fig.update_layout(
         title=dict(text=f"<b>{t}</b>", font=dict(color="#F8FAFC", size=14)), 
@@ -203,15 +203,15 @@ def plot_top10(df_subset, titulo, color_bar):
         empty_layout(titulo)
         return fig
         
-    df_top = df_subset.groupby('Código')['Observadas'].sum().reset_index()
-    df_top = df_top[df_top['Observadas'] > 0].sort_values('Observadas', ascending=True).tail(10)
+    df_top = df_subset.groupby('Código')[metrica].sum().reset_index()
+    df_top = df_top[df_top[metrica] > 0].sort_values(metrica, ascending=True).tail(10)
     
     if df_top.empty:
         empty_layout(titulo)
         return fig
         
-    max_val = df_top['Observadas'].max()
-    fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
+    max_val = df_top[metrica].max()
+    fig = px.bar(df_top, x=metrica, y='Código', orientation='h', text=metrica)
     fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
     fig.update_layout(
         title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=14)), 
@@ -382,7 +382,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
     if not df_full.empty:
         col_t1, col_t2 = st.columns([1, 2])
         with col_t1:
-            vista_scrap = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True)
+            vista_scrap = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True, key="radio_vista_scrap")
             
         st.divider()
 
@@ -438,7 +438,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                 with st.container(border=True):
                     df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
                     df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-                    fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+                    fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
                     fig_bar.update_layout(
                         title=dict(font=dict(color="#F8FAFC", size=15)),
                         height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
@@ -453,9 +453,9 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
             
             row_cols = st.columns(3)
             with row_cols[0].container(border=True):
-                st.plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Año)", "#94A3B8"), use_container_width=True)
+                st.plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Año)", "#94A3B8", metrica='Observadas'), use_container_width=True)
             with row_cols[1].container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B"), use_container_width=True)
+                st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B", metrica='Observadas'), use_container_width=True)
             
             c_idx, r_container = 2, row_cols
             for i, orig in enumerate(origenes_productivos):
@@ -463,7 +463,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     r_container = st.columns(3)
                     c_idx = 0
                 with r_container[c_idx].container(border=True):
-                    st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]), use_container_width=True)
+                    st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == orig], f"SCRAP - {orig}", colors[i % len(colors)], metrica='Observadas'), use_container_width=True)
                 c_idx += 1
 
         else:
@@ -472,7 +472,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
             
             col_sel_mes, _ = st.columns([1, 4])
             with col_sel_mes:
-                mes_sel_nombre = st.selectbox("**Seleccione el Mes:**", mes_nombres, index=len(mes_nombres)-1)
+                mes_sel_nombre = st.selectbox("**Seleccione el Mes:**", mes_nombres, index=len(mes_nombres)-1, key="sel_mes_scrap")
             
             mes_sel_int = MESES_REVERSE_MAP[mes_sel_nombre]
             df_mes_view = df_full[df_full['Mes'] == mes_sel_int].copy()
@@ -508,13 +508,13 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                         st.info("Sin Scrap este mes")
 
                 with row1_m[2].container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view, "SCRAP GENERAL", "#94A3B8"), use_container_width=True)
+                    st.plotly_chart(plot_top10(df_mes_view, "SCRAP GENERAL", "#94A3B8", metrica='Observadas'), use_container_width=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 row_cols_m = st.columns(3)
                 
                 with row_cols_m[0].container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B"), use_container_width=True)
+                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B", metrica='Observadas'), use_container_width=True)
                 
                 c_idx_m, r_container_m = 1, row_cols_m
                 for i, orig in enumerate(origenes_productivos):
@@ -522,7 +522,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                         r_container_m = st.columns(3)
                         c_idx_m = 0
                     with r_container_m[c_idx_m].container(border=True):
-                        st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == orig], f"SCRAP {orig}", colors[i % len(colors)]), use_container_width=True)
+                        st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == orig], f"SCRAP {orig}", colors[i % len(colors)], metrica='Observadas'), use_container_width=True)
                     c_idx_m += 1
 
             else:
@@ -534,44 +534,154 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
 # ====== PANEL RETRABAJO (RT) ======
 elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
     if not df_full.empty:
-        df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
-        df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
-        df_mes_rt['Pct_RT'] = (df_mes_rt['Retrabajo'] / df_mes_rt['Total_Piezas'].replace(0, 1)) * 100
-        
-        df_mes_completo_rt = pd.DataFrame({'Mes': range(1, 13)})
-        df_mes_completo_rt = pd.merge(df_mes_completo_rt, df_mes_rt, on='Mes', how='left').fillna(0)
-        df_mes_completo_rt['Mes_Nombre'] = df_mes_completo_rt['Mes'].map(MESES_MAP)
-        
-        st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
-        
-        matriz_rt = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL RT', '% RT'])
-        for _, row in df_mes_completo_rt.iterrows():
-            mes_str = row['Mes_Nombre']
-            matriz_rt.loc['TOTAL PIEZAS', mes_str] = f"{int(row['Total_Piezas']):,}".replace(',', '.')
-            matriz_rt.loc['TOTAL RT', mes_str] = f"{int(row['Retrabajo']):,}".replace(',', '.')
-            matriz_rt.loc['% RT', mes_str] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_RT']:.2f}%".replace('.', ',')
-
-        render_dark_table(matriz_rt)
-        
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            with st.container(border=True):
-                fig_pct_rt = go.Figure()
-                fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#38BDF8', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside', textfont=dict(color="#F8FAFC", size=11)))
-                fig_pct_rt.add_hline(y=2.0, line_color="#EF4444", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%", annotation_font=dict(color="#EF4444", size=12))
-                fig_pct_rt.update_layout(
-                    title=dict(text="<b>% DE RT MENSUAL</b>", font=dict(color="#F8FAFC", size=15)), 
-                    height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
-                    font=dict(color="#F8FAFC"), yaxis=dict(title="% Retrabajo", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
-                    xaxis=dict(tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20)
-                )
-                st.plotly_chart(fig_pct_rt, use_container_width=True)
+        col_t1_rt, col_t2_rt = st.columns([1, 2])
+        with col_t1_rt:
+            vista_rt = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True, key="radio_vista_rt")
             
-        with col_r2:
-            with st.container(border=True):
-                st.markdown('<div style="margin-top: 10px; margin-bottom: 15px; color:#F8FAFC;"><b>Top 15 Piezas con Mayor Retrabajo (SQL)</b></div>', unsafe_allow_html=True)
+        st.divider()
+
+        if vista_rt == "📊 Acumulado Anual":
+            df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
+            df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
+            df_mes_rt['Pct_RT'] = (df_mes_rt['Retrabajo'] / df_mes_rt['Total_Piezas'].replace(0, 1)) * 100
+            
+            df_mes_completo_rt = pd.DataFrame({'Mes': range(1, 13)})
+            df_mes_completo_rt = pd.merge(df_mes_completo_rt, df_mes_rt, on='Mes', how='left').fillna(0)
+            df_mes_completo_rt['Mes_Nombre'] = df_mes_completo_rt['Mes'].map(MESES_MAP)
+            
+            st.markdown(f'<div class="sub-header">INDICADOR GENERAL DE RETRABAJO DE PLANTA - {area_sel}</div>', unsafe_allow_html=True)
+            
+            matriz_rt = pd.DataFrame(index=['TOTAL PIEZAS', 'TOTAL RT', '% RT'])
+            for _, row in df_mes_completo_rt.iterrows():
+                mes_str = row['Mes_Nombre']
+                matriz_rt.loc['TOTAL PIEZAS', mes_str] = f"{int(row['Total_Piezas']):,}".replace(',', '.')
+                matriz_rt.loc['TOTAL RT', mes_str] = f"{int(row['Retrabajo']):,}".replace(',', '.')
+                matriz_rt.loc['% RT', mes_str] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_RT']:.2f}%".replace('.', ',')
+
+            render_dark_table(matriz_rt)
+            
+            # --- TABLA RESUMEN MES A MES POR ORIGEN PARA RT ---
+            origenes_rt = sorted([o for o in df_full['ORIGEN'].unique() if pd.notnull(o) and str(o) != 'nan'])
+            matriz_origen_rt = pd.DataFrame(index=origenes_rt)
+            for m in range(1, 13):
+                total_mes_rt_val = df_mes_completo_rt[df_mes_completo_rt['Mes'] == m]['Retrabajo'].values[0]
+                for orig in origenes_rt:
+                    val = df_full[(df_full['ORIGEN'] == orig) & (df_full['Mes'] == m)]['Retrabajo'].sum()
+                    pct = (val / total_mes_rt_val * 100) if total_mes_rt_val > 0 else 0
+                    matriz_origen_rt.loc[orig, MESES_MAP[m]] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
+
+            if not matriz_origen_rt.empty:
+                matriz_origen_rt.loc['TOTAL'] = matriz_rt.loc['TOTAL RT']
+                render_dark_table(matriz_origen_rt)
+
+            st.divider()
+            
+            col_r1, col_r2 = st.columns(2)
+            with col_r1:
+                with st.container(border=True):
+                    fig_pct_rt = go.Figure()
+                    fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#38BDF8', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside', textfont=dict(color="#F8FAFC", size=11)))
+                    fig_pct_rt.add_hline(y=2.0, line_color="#EF4444", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%", annotation_font=dict(color="#EF4444", size=12))
+                    fig_pct_rt.update_layout(
+                        title=dict(text="<b>% DE RT MENSUAL</b>", font=dict(color="#F8FAFC", size=15)), 
+                        height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+                        font=dict(color="#F8FAFC"), yaxis=dict(title="% Retrabajo", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
+                        xaxis=dict(tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20)
+                    )
+                    st.plotly_chart(fig_pct_rt, use_container_width=True)
+            
+            with col_r2:
+                with st.container(border=True):
+                    df_g_origen_rt = df_full.groupby(['Mes', 'ORIGEN'])['Retrabajo'].sum().reset_index()
+                    df_g_origen_rt['Mes_Nombre'] = df_g_origen_rt['Mes'].map(MESES_MAP)
+                    fig_bar_rt = px.bar(df_g_origen_rt, x='Mes_Nombre', y='Retrabajo', color='ORIGEN', barmode='group', title="<b>RETRABAJO POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+                    fig_bar_rt.update_layout(
+                        title=dict(font=dict(color="#F8FAFC", size=15)),
+                        height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+                        font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas RT", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), 
+                        xaxis=dict(title="", tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20), 
+                        legend=dict(title=dict(text="<b>ORIGEN</b>", font=dict(color="#F8FAFC")), font=dict(color="#F8FAFC"))
+                    )
+                    st.plotly_chart(fig_bar_rt, use_container_width=True)
+                    
+            st.divider()
+            st.markdown('<div class="sub-header">RETRABAJO - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
+            
+            row_cols_rt = st.columns(3)
+            with row_cols_rt[0].container(border=True):
+                st.plotly_chart(plot_top10(df_full, "RT GENERAL (Todo el Año)", "#38BDF8", metrica='Retrabajo'), use_container_width=True)
+            with row_cols_rt[1].container(border=True):
+                st.markdown('<div style="margin-top: 5px; margin-bottom: 10px; color:#F8FAFC;"><b>Top 15 Piezas (Tabla General)</b></div>', unsafe_allow_html=True)
                 top_rt_df = df_full.groupby('Código')['Retrabajo'].sum().reset_index()
                 top_rt_df = top_rt_df[top_rt_df['Retrabajo'] > 0].sort_values('Retrabajo', ascending=False).head(15)
                 st.dataframe(top_rt_df, column_config={"Código": "Código de Producto", "Retrabajo": st.column_config.NumberColumn("Cantidad RT", format="%d")}, hide_index=True, use_container_width=True)
+            
+            c_idx_rt, r_container_rt = 2, row_cols_rt
+            for i, orig in enumerate(origenes_productivos):
+                if c_idx_rt == 3:
+                    r_container_rt = st.columns(3)
+                    c_idx_rt = 0
+                with r_container_rt[c_idx_rt].container(border=True):
+                    st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == orig], f"RT - {orig}", colors[i % len(colors)], metrica='Retrabajo'), use_container_width=True)
+                c_idx_rt += 1
+
+        else:
+            # Vista Detalle Mensual para RT
+            meses_disp_rt = sorted(df_full['Mes'].unique().tolist())
+            mes_nombres_rt = [MESES_MAP[m] for m in meses_disp_rt]
+            
+            col_sel_mes_rt, _ = st.columns([1, 4])
+            with col_sel_mes_rt:
+                mes_sel_nombre_rt = st.selectbox("**Seleccione el Mes:**", mes_nombres_rt, index=len(mes_nombres_rt)-1, key="sel_mes_rt")
+            
+            mes_sel_int_rt = MESES_REVERSE_MAP[mes_sel_nombre_rt]
+            df_mes_view_rt = df_full[df_full['Mes'] == mes_sel_int_rt].copy()
+            
+            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE RETRABAJO - {mes_sel_nombre_rt}</div>', unsafe_allow_html=True)
+            
+            if not df_mes_view_rt.empty:
+                total_rt_mes = df_mes_view_rt['Retrabajo'].sum()
+                df_tabla_mes_rt = df_mes_view_rt.groupby('ORIGEN')['Retrabajo'].sum().reset_index()
+                df_tabla_mes_rt['%'] = (df_tabla_mes_rt['Retrabajo'] / total_rt_mes) * 100 if total_rt_mes > 0 else 0
+                
+                row1_m_rt = st.columns([1, 1.5, 1.5])
+                
+                with row1_m_rt[0].container(border=True):
+                    html_tb_rt = f'<table style="width:100%; border-collapse: collapse; border: 1px solid #475569; font-family: Arial; font-size: 13px; text-align: center; color: #F8FAFC;">'
+                    html_tb_rt += f'<tr style="background-color: #334155;"><th style="border: 1px solid #475569; padding: 6px;">ORIGEN</th><th style="border: 1px solid #475569;">CANT</th><th style="border: 1px solid #475569;">%</th></tr>'
+                    for _, row_tb in df_tabla_mes_rt.sort_values('Retrabajo', ascending=False).iterrows():
+                        html_tb_rt += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Retrabajo"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
+                    html_tb_rt += f'<tr style="background-color: #F59E0B; color: #000000; font-weight: bold;"><td style="border: 1px solid #475569; padding: 6px;">TOTAL</td><td style="border: 1px solid #475569;">{int(total_rt_mes)}</td><td style="border: 1px solid #475569;">100%</td></tr>'
+                    html_tb_rt += '</table>'
+                    st.markdown(html_tb_rt, unsafe_allow_html=True)
+                
+                with row1_m_rt[1].container(border=True):
+                    if total_rt_mes > 0:
+                        fig_pie_rt = px.pie(df_tabla_mes_rt, values='Retrabajo', names='ORIGEN', color_discrete_sequence=px.colors.qualitative.Pastel)
+                        fig_pie_rt.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000", size=12))
+                        fig_pie_rt.update_layout(
+                            height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, 
+                            paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC")
+                        )
+                        st.plotly_chart(fig_pie_rt, use_container_width=True)
+                    else:
+                        st.info("Sin Retrabajo este mes")
+
+                with row1_m_rt[2].container(border=True):
+                    st.plotly_chart(plot_top10(df_mes_view_rt, "RT GENERAL", "#38BDF8", metrica='Retrabajo'), use_container_width=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                row_cols_m_rt = st.columns(3)
+                
+                c_idx_m_rt, r_container_m_rt = 0, row_cols_m_rt
+                for i, orig in enumerate(origenes_productivos):
+                    if c_idx_m_rt == 3:
+                        r_container_m_rt = st.columns(3)
+                        c_idx_m_rt = 0
+                    with r_container_m_rt[c_idx_m_rt].container(border=True):
+                        st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['ORIGEN'] == orig], f"RT {orig}", colors[i % len(colors)], metrica='Retrabajo'), use_container_width=True)
+                    c_idx_m_rt += 1
+            else:
+                st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
     else:
-        st.info("No hay registros de Retrabajo para el área seleccionada.")
+        st.info(f"No hay registros de Retrabajo en la base de datos para el año {anio_sel} en el área seleccionada.")
