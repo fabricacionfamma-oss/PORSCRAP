@@ -114,7 +114,7 @@ st.markdown("""
     /* 5. PESTAÑAS (TABS) - ALTO CONTRASTE */
     button[role="tab"], button[data-baseweb="tab"] {
         background-color: transparent !important;
-        color: #E2E8F0 !important; /* Gris claro brillante para pestañas inactivas */
+        color: #E2E8F0 !important;
         font-weight: 700 !important;
         font-size: 16px !important;
         padding-bottom: 10px !important;
@@ -123,7 +123,7 @@ st.markdown("""
         color: #E2E8F0 !important;
     }
     button[role="tab"][aria-selected="true"] *, button[data-baseweb="tab"][aria-selected="true"] * {
-        color: #38BDF8 !important; /* Celeste brillante para la pestaña activa */
+        color: #38BDF8 !important;
     }
     div[data-baseweb="tab-highlight"] {
         background-color: #38BDF8 !important;
@@ -270,6 +270,7 @@ def fetch_annual_data(anio):
         st.error(f"Error en SQL: {e}")
         return pd.DataFrame()
 
+# --- CORRECCIÓN CRÍTICA EN LA LECTURA DE GOOGLE SHEETS ---
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
     try:
@@ -281,16 +282,36 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
-        cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'SOLDADURA', 'QUE PIEZA'])]
-        df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
-        c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper()), None)
+        # 1. Unificar Código: Busca en orden las columnas Piezas Fiat, Piezas Renault, Piezas Nissan, Que pieza va a retrabajo, etc.
+        cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA'])]
+        if cols_piezas:
+            df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO')
+        else:
+            df_gs['Código'] = "SIN CÓDIGO"
+            
+        # 2. Captura exacta de Scrap: Busca la columna específica 'Cantidad de Pieza Scrap' o similar
+        c_scrap = next((c for c in df_gs.columns if 'PIEZA SCRAP' in c.upper() or 'CANTIDAD DE PIEZA SCRAP' in c.upper()), None)
+        if not c_scrap:
+            c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper() and 'RT' not in c.upper()), None)
+            
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
+        
+        # 3. Conversión inteligente de fecha (Soporta M/D/YYYY como en tu imagen sin generar NaT en junio)
         c_fecha = next((c for c in ['Fecha', 'Marca temporal', 'FECHA'] if c in df_gs.columns), None)
-        df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], dayfirst=True, errors='coerce') if c_fecha else pd.NaT
-        c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
+        if c_fecha:
+            # Primero intenta formato M/D/Y (común en tu Sheets), si falla va al automático
+            df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], format='%m/%d/%Y', errors='coerce')
+            df_gs['Fecha_DT'] = df_gs['Fecha_DT'].fillna(pd.to_datetime(df_gs[c_fecha], errors='coerce'))
+        else:
+            df_gs['Fecha_DT'] = pd.NaT
+            
+        c_cliente = next((c for c in ['Cliente', 'CLIENTE'] if c in df_gs.columns), None)
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
+        # Filtrar por el año seleccionado y sólo filas con Scrap > 0
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
+        df_gs = df_gs[df_gs['Observadas'] > 0]
+        
         if not df_gs.empty:
             df_gs['Mes'] = df_gs['Fecha_DT'].dt.month
             df_gs['ORIGEN'] = 'RT'
@@ -342,18 +363,15 @@ lista_blanca_sql = set(df_sql_fil['Código'].str.strip().str.upper().unique()) i
 
 df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
 if not df_gs_fil.empty:
-    if len(lista_blanca_sql) > 0:
-        df_gs_fil['Código_Clean'] = df_gs_fil['Código'].str.strip().str.upper()
-        df_gs_fil = df_gs_fil[df_gs_fil['Código_Clean'].isin(lista_blanca_sql)]
-        df_gs_fil.drop(columns=['Código_Clean'], inplace=True)
-    else:
-        df_gs_fil = pd.DataFrame()
+    # --- CORRECCIÓN: Si el código de Google Sheets no está en SQL, no lo borra, lo mantiene y limpia espacios ---
+    df_gs_fil['Código'] = df_gs_fil['Código'].str.strip().str.upper()
 
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sql_fil.empty else pd.DataFrame()
 
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
-    df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
+    # --- CORRECCIÓN: Ahora permite ver hasta el mes actual (<=) en lugar de ocultarlo (<) ---
+    df_full_raw = df_full_raw[df_full_raw['Mes'] <= hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
 
