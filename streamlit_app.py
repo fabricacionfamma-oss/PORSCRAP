@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate
+# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste corregido en widgets)
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -43,22 +43,95 @@ st.markdown("""
         margin-top: 1rem; 
         margin-bottom: 1rem; 
     }
-    /* Contenedores de opciones (Radios, Selectbox, Checkbox) */
-    div[data-testid="stRadio"] > div { 
-        background-color: #1E293B; 
-        padding: 10px; 
-        border-radius: 8px; 
-        border: 1px solid #334155; 
-        color: #F8FAFC;
-    }
-    label, .stMarkdown p, .stText { 
-        color: #F8FAFC !important; 
-    }
     /* Contenedores con borde de Streamlit */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #1E293B !important;
         border: 1px solid #334155 !important;
         border-radius: 8px;
+    }
+    
+    /* --- CORRECCIÓN DE CONTRASTE EN BOTONES Y WIDGETS --- */
+    
+    /* 1. Botones (Actualizar Datos) */
+    div[data-testid="stButton"] button {
+        background-color: #1E293B !important;
+        color: #F8FAFC !important;
+        border: 1px solid #38BDF8 !important;
+        font-weight: bold !important;
+        border-radius: 6px !important;
+        transition: all 0.3s ease !important;
+    }
+    div[data-testid="stButton"] button:hover {
+        background-color: #0284C7 !important;
+        color: #FFFFFF !important;
+        border-color: #38BDF8 !important;
+        box-shadow: 0 0 8px rgba(56, 189, 248, 0.4) !important;
+    }
+    div[data-testid="stButton"] p {
+        color: inherit !important;
+    }
+
+    /* 2. Textos generales y etiquetas */
+    label, .stMarkdown p, .stText, span { 
+        color: #F8FAFC !important; 
+    }
+
+    /* 3. Radio Buttons (Área de producción y Vista) */
+    div[data-testid="stRadio"] > div { 
+        background-color: #1E293B !important; 
+        padding: 10px !important; 
+        border-radius: 8px !important; 
+        border: 1px solid #334155 !important; 
+    }
+    div[role="radiogroup"] label div p,
+    div[role="radiogroup"] label div span,
+    div[data-testid="stRadio"] label p {
+        color: #F8FAFC !important;
+        font-weight: 500 !important;
+    }
+
+    /* 4. Selectbox (Año de Análisis) */
+    div[data-baseweb="select"] > div {
+        background-color: #1E293B !important;
+        color: #F8FAFC !important;
+        border-color: #334155 !important;
+    }
+    div[data-baseweb="select"] span, div[data-baseweb="select"] div {
+        color: #F8FAFC !important;
+    }
+    ul[data-baseweb="menu"] {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+    }
+    li[data-baseweb="option"] {
+        color: #F8FAFC !important;
+        background-color: #1E293B !important;
+    }
+    li[data-baseweb="option"]:hover, li[data-baseweb="option"][aria-selected="true"] {
+        background-color: #334155 !important;
+        color: #38BDF8 !important;
+    }
+
+    /* 5. Pestañas (Tabs: Scrap vs RT) */
+    button[data-baseweb="tab"] {
+        color: #64748B !important; /* Slate gris claro para inactivos */
+        font-weight: bold !important;
+        font-size: 15px !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #38BDF8 !important; /* Celeste brillante para activo */
+    }
+    button[data-baseweb="tab"]:hover {
+        color: #F8FAFC !important;
+    }
+    div[data-baseweb="tab-highlight"] {
+        background-color: #38BDF8 !important;
+    }
+
+    /* 6. Checkbox (Ignorar Piezas H) */
+    div[data-testid="stCheckbox"] label span,
+    div[data-testid="stCheckbox"] label p {
+        color: #F8FAFC !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -75,7 +148,6 @@ def render_dark_table(df):
     for _, row in df_reset.iterrows():
         header_val = row.iloc[0] 
         is_bold = "font-weight: bold;" if header_val in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
-        # Totales en Ámbar con texto negro para resaltar
         bg_color = "background-color: #F59E0B; color: #000000;" if header_val in ['% SCRAP', '% RT', 'TOTAL'] else "background-color: #1E293B; color: #F8FAFC;"
         html += f'<tr style="{is_bold} {bg_color}">'
         for val in row:
@@ -100,7 +172,6 @@ def unificar_codigos_similares(df):
     df['Código'] = df['Código'].map(mapping).fillna(df['Código'])
     return df
 
-# --- NUEVO: LECTURA DESDE GOOGLE SHEETS DE LAS PIEZAS H ---
 @st.cache_data(ttl=3600)
 def fetch_piezas_h(gs_url):
     try:
@@ -110,7 +181,6 @@ def fetch_piezas_h(gs_url):
         gid = re.search(r'gid=(\d+)', gs_url).group(1) if re.search(r'gid=(\d+)', gs_url) else "0"
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         df_h = pd.read_csv(csv_url)
-        # Toma los valores de la primera columna (columna A: pieza) eliminando vacíos
         piezas = df_h.iloc[:, 0].dropna().astype(str).str.strip().tolist()
         return [p for p in piezas if p and p.upper() != 'PIEZA']
     except Exception as e:
@@ -134,7 +204,6 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
         return df[~df['Código'].isin(codes_to_remove)].copy()
     return df
 
-# Función auxiliar para gráficos adaptada al fondo oscuro
 def plot_top10(df_subset, titulo, color_bar):
     fig = go.Figure()
     empty_layout = lambda t: fig.update_layout(
@@ -176,7 +245,6 @@ with col_btn:
 
 st.divider()
 
-# Funciones de extracción de datos SQL y GS
 @st.cache_data(ttl=300)
 def fetch_annual_data(anio):
     try:
@@ -284,11 +352,9 @@ if anio_sel == hoy.year and not df_full_raw.empty:
 
 df_full = unificar_codigos_similares(df_full_raw)
 
-# Aplicar filtro de Piezas H si el Checkbox está activo
 if ignorar_h and not df_full.empty:
     df_full = filtrar_piezas_h(df_full, lista_piezas_h, threshold=0.85)
 
-# Configuración de Colores y Orígenes
 origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan'] if not df_full.empty else []
 colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#95A5A6"]
 
