@@ -5,40 +5,81 @@ import plotly.graph_objects as go
 import re
 import difflib
 
-# URL fija del Google Sheets de Calidad (Scrap en Retrabajo) - Lectura en segundo plano
+# URLs fijas de Google Sheets
 URL_GS_RT = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvMgYjRp-16M1210hMU/edit?resourcekey=&gid=1779842834#gid=1779842834"
+URL_GS_H = "https://docs.google.com/spreadsheets/d/1mLnIC8B7mwmFZwthO0A32H3ZFfXSKt7vIUMBXEZxDJ0/edit?gid=0#gid=0"
 
 MESES_MAP = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO', 
              7:'JULIO', 8:'AGOSTO', 9:'SEPTIEMBRE', 10:'OCTUBRE', 11:'NOVIEMBRE', 12:'DICIEMBRE'}
 MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 
-# Configuración de página y estilos
+# Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
+# Estilos CSS - Modo Oscuro Azul Marino / Slate
 st.markdown("""
 <style>
-    .header-style { font-size: 28px; font-weight: bold; color: #1F2937; margin-bottom: 0px; }
-    .sub-header { font-size: 20px; font-weight: bold; color: #34495E; margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; }
-    hr { margin-top: 1rem; margin-bottom: 1rem; }
-    div[data-testid="stRadio"] > div { background-color: #F8F9F9; padding: 10px; border-radius: 8px; border: 1px solid #D5D8DC; }
+    /* Fondo principal azul marino oscuro */
+    .stApp {
+        background-color: #0F172A !important;
+        color: #F8FAFC !important;
+    }
+    .header-style { 
+        font-size: 28px; 
+        font-weight: bold; 
+        color: #F8FAFC; 
+        margin-bottom: 10px; 
+    }
+    .sub-header { 
+        font-size: 20px; 
+        font-weight: bold; 
+        color: #38BDF8; 
+        margin-top: 15px; 
+        margin-bottom: 10px; 
+        text-transform: uppercase; 
+    }
+    hr { 
+        border-color: #334155 !important; 
+        margin-top: 1rem; 
+        margin-bottom: 1rem; 
+    }
+    /* Contenedores de opciones (Radios, Selectbox, Checkbox) */
+    div[data-testid="stRadio"] > div { 
+        background-color: #1E293B; 
+        padding: 10px; 
+        border-radius: 8px; 
+        border: 1px solid #334155; 
+        color: #F8FAFC;
+    }
+    label, .stMarkdown p, .stText { 
+        color: #F8FAFC !important; 
+    }
+    /* Contenedores con borde de Streamlit */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# Tabla HTML adaptada al diseño oscuro
 def render_dark_table(df):
     df_reset = df.reset_index()
     df_reset.rename(columns={'index': ''}, inplace=True)
-    html = '<table style="width:100%; border-collapse: collapse; border: 2px solid black; font-family: Arial, sans-serif; font-size: 13px;">'
-    html += '<tr style="background-color: #D5D8DC;">'
+    html = '<table style="width:100%; border-collapse: collapse; border: 1px solid #475569; font-family: Arial, sans-serif; font-size: 13px; color: #F8FAFC;">'
+    html += '<tr style="background-color: #334155; color: #F8FAFC; font-weight: bold;">'
     for col in df_reset.columns:
-        html += f'<th style="border: 1px solid black; padding: 8px; text-align: center;">{col}</th>'
+        html += f'<th style="border: 1px solid #475569; padding: 8px; text-align: center;">{col}</th>'
     html += '</tr>'
     for _, row in df_reset.iterrows():
         header_val = row.iloc[0] 
         is_bold = "font-weight: bold;" if header_val in ['TOTAL PIEZAS', 'TOTAL SCRAP', '% SCRAP', 'TOTAL RT', '% RT', 'TOTAL'] else ""
-        bg_color = "background-color: #F1C40F;" if header_val in ['% SCRAP', '% RT', 'TOTAL'] else ""
+        # Totales en Ámbar con texto negro para resaltar
+        bg_color = "background-color: #F59E0B; color: #000000;" if header_val in ['% SCRAP', '% RT', 'TOTAL'] else "background-color: #1E293B; color: #F8FAFC;"
         html += f'<tr style="{is_bold} {bg_color}">'
         for val in row:
-            html += f'<td style="border: 1px solid black; padding: 6px; text-align: center;">{val}</td>'
+            html += f'<td style="border: 1px solid #475569; padding: 6px; text-align: center;">{val}</td>'
         html += '</tr>'
     html += '</table><br>'
     st.markdown(html, unsafe_allow_html=True)
@@ -59,10 +100,49 @@ def unificar_codigos_similares(df):
     df['Código'] = df['Código'].map(mapping).fillna(df['Código'])
     return df
 
-# Función auxiliar para generar gráficos de barras Top 10
+# --- NUEVO: LECTURA DESDE GOOGLE SHEETS DE LAS PIEZAS H ---
+@st.cache_data(ttl=3600)
+def fetch_piezas_h(gs_url):
+    try:
+        id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', gs_url)
+        if not id_match: return []
+        sheet_id = id_match.group(1)
+        gid = re.search(r'gid=(\d+)', gs_url).group(1) if re.search(r'gid=(\d+)', gs_url) else "0"
+        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        df_h = pd.read_csv(csv_url)
+        # Toma los valores de la primera columna (columna A: pieza) eliminando vacíos
+        piezas = df_h.iloc[:, 0].dropna().astype(str).str.strip().tolist()
+        return [p for p in piezas if p and p.upper() != 'PIEZA']
+    except Exception as e:
+        return []
+
+def filtrar_piezas_h(df, lista_h, threshold=0.85):
+    if df.empty or 'Código' not in df.columns or not lista_h: return df
+    unique_codes = df['Código'].dropna().unique()
+    codes_to_remove = set()
+    
+    for cod in unique_codes:
+        cod_upper = str(cod).strip().upper()
+        for item in lista_h:
+            item_upper = str(item).strip().upper()
+            if (len(cod_upper) > 5 and (cod_upper in item_upper or item_upper in cod_upper)) or \
+               difflib.SequenceMatcher(None, cod_upper, item_upper).ratio() >= threshold:
+                codes_to_remove.add(cod)
+                break
+                
+    if codes_to_remove:
+        return df[~df['Código'].isin(codes_to_remove)].copy()
+    return df
+
+# Función auxiliar para gráficos adaptada al fondo oscuro
 def plot_top10(df_subset, titulo, color_bar):
     fig = go.Figure()
-    empty_layout = lambda t: fig.update_layout(title=f"<b>{t}</b>", height=280, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="gray"))], margin=dict(t=40, b=10, l=10, r=10))
+    empty_layout = lambda t: fig.update_layout(
+        title=f"<b>{t}</b>", height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#F8FAFC"), xaxis=dict(visible=False), yaxis=dict(visible=False), 
+        annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))], 
+        margin=dict(t=40, b=10, l=10, r=10)
+    )
     
     if df_subset is None or df_subset.empty:
         empty_layout(titulo)
@@ -77,15 +157,18 @@ def plot_top10(df_subset, titulo, color_bar):
         
     max_val = df_top['Observadas'].max()
     fig = px.bar(df_top, x='Observadas', y='Código', orientation='h', text='Observadas')
-    fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='black'), width=0.6)
-    fig.update_layout(title=f"<b>{titulo}</b>", height=280, xaxis=dict(visible=False, range=[0, max_val * 1.3]), yaxis=dict(title="", tickfont=dict(size=10)), plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=10, l=10, r=40))
+    fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC'), width=0.6)
+    fig.update_layout(
+        title=f"<b>{titulo}</b>", height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#F8FAFC"), xaxis=dict(visible=False, range=[0, max_val * 1.3]), 
+        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40)
+    )
     return fig
 
-# Encabezado y botón de actualización
+# Encabezado sin leyenda y con botón de actualización
 col_title, col_btn = st.columns([5, 1])
 with col_title:
     st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT - FAMMA</div>', unsafe_allow_html=True)
-    st.caption("Métrica exacta: Scrap = 'Observadas' (SQL) + GS | Retrabajo = 'Retrabajo' (SQL)")
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
         st.cache_data.clear()
@@ -93,7 +176,7 @@ with col_btn:
 
 st.divider()
 
-# Funciones de extracción de datos
+# Funciones de extracción de datos SQL y GS
 @st.cache_data(ttl=300)
 def fetch_annual_data(anio):
     try:
@@ -146,16 +229,20 @@ def fetch_gs_annual(gs_url, anio):
     except Exception as e:
         return pd.DataFrame()
 
-# Filtros principales
-col_f1, col_f2 = st.columns([1, 3])
+# Filtros principales con Checkbox de Piezas H
+col_f1, col_f2, col_f3 = st.columns([1, 2.5, 1.5])
 with col_f1:
     anio_sel = st.selectbox("**Año de Análisis:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
 with col_f2:
     area_sel = st.radio("**Área de Producción:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
+with col_f3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    ignorar_h = st.checkbox("🚫 **Ignorar Piezas H**", value=False, help="Excluye las piezas conectándose en vivo al Google Sheets de Piezas H.")
 
 # Carga de datos
 df_sql = fetch_annual_data(anio_sel)
 df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
+lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
@@ -197,9 +284,13 @@ if anio_sel == hoy.year and not df_full_raw.empty:
 
 df_full = unificar_codigos_similares(df_full_raw)
 
-# Configuración de Colores y Origenes para Gráficos
+# Aplicar filtro de Piezas H si el Checkbox está activo
+if ignorar_h and not df_full.empty:
+    df_full = filtrar_piezas_h(df_full, lista_piezas_h, threshold=0.85)
+
+# Configuración de Colores y Orígenes
 origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan'] if not df_full.empty else []
-colors = ["#27AE60", "#2980B9", "#8E44AD", "#16A085", "#D35400", "#C0392B", "#34495E"]
+colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#95A5A6"]
 
 # --- PESTAÑAS PRINCIPALES ---
 tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"])
@@ -207,8 +298,6 @@ tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (
 # ====== PESTAÑA SCRAP ======
 with tab_scrap:
     if not df_full.empty:
-        
-        # TOGGLE: ANUAL vs MENSUAL
         col_t1, col_t2 = st.columns([1, 2])
         with col_t1:
             vista_scrap = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True)
@@ -216,7 +305,6 @@ with tab_scrap:
         st.divider()
 
         if vista_scrap == "📊 Acumulado Anual":
-            # --- VISTA ACUMULADA ANUAL (Original) ---
             df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
             df_mes['Total_Piezas'] = df_mes['Buenas'] + df_mes['Retrabajo'] + df_mes['Scrap']
             df_mes['Pct_Scrap'] = (df_mes['Scrap'] / df_mes['Total_Piezas'].replace(0, 1)) * 100
@@ -254,9 +342,9 @@ with tab_scrap:
             with col_g1:
                 with st.container(border=True):
                     fig_pct = go.Figure()
-                    fig_pct.add_trace(go.Bar(x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'], marker_color='#F1C40F', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside'))
-                    fig_pct.add_hline(y=0.5, line_color="#E67E22", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%")
-                    fig_pct.update_layout(title="<b>% DE SCRAP MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(title="% Scrap"), margin=dict(t=40, b=20, l=20, r=20))
+                    fig_pct.add_trace(go.Bar(x=df_mes_completo['Mes_Nombre'], y=df_mes_completo['Pct_Scrap'], marker_color='#F59E0B', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo['Pct_Scrap']], textposition='outside', textfont=dict(color="#F8FAFC")))
+                    fig_pct.add_hline(y=0.5, line_color="#38BDF8", line_width=2, line_dash="solid", annotation_text="Meta: 0.50%", annotation_font=dict(color="#38BDF8"))
+                    fig_pct.update_layout(title="<b>% DE SCRAP MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="% Scrap", gridcolor="#334155"), margin=dict(t=40, b=20, l=20, r=20))
                     st.plotly_chart(fig_pct, use_container_width=True)
                 
             with col_g2:
@@ -264,18 +352,17 @@ with tab_scrap:
                     df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
                     df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
                     fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORIGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
-                    fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Cantidad Piezas", xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
+                    fig_bar.update_layout(height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas", gridcolor="#334155"), xaxis_title="", margin=dict(t=40, b=20, l=20, r=20), legend_title="")
                     st.plotly_chart(fig_bar, use_container_width=True)
 
             st.divider()
             st.markdown('<div class="sub-header">SCRAP - TOP 10 DEL AÑO POR ORIGEN</div>', unsafe_allow_html=True)
             
-            # Cuadrícula Dinámica con Recuadros (Anual)
             row_cols = st.columns(3)
             with row_cols[0].container(border=True):
-                st.plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Año)", "#5D6D7E"), use_container_width=True)
+                st.plotly_chart(plot_top10(df_full, "SCRAP GENERAL (Todo el Año)", "#94A3B8"), use_container_width=True)
             with row_cols[1].container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F39C12"), use_container_width=True)
+                st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B"), use_container_width=True)
             
             c_idx, r_container = 2, row_cols
             for i, orig in enumerate(origenes_productivos):
@@ -286,9 +373,7 @@ with tab_scrap:
                     st.plotly_chart(plot_top10(df_full[df_full['ORIGEN'] == orig], f"SCRAP - {orig}", colors[i % len(colors)]), use_container_width=True)
                 c_idx += 1
 
-
         else:
-            # --- VISTA DETALLE MENSUAL (REPLICA EXCEL) ---
             meses_disp = sorted(df_full['Mes'].unique().tolist())
             mes_nombres = [MESES_MAP[m] for m in meses_disp]
             
@@ -299,47 +384,41 @@ with tab_scrap:
             mes_sel_int = MESES_REVERSE_MAP[mes_sel_nombre]
             df_mes_view = df_full[df_full['Mes'] == mes_sel_int].copy()
             
-            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#D5D8DC; padding:8px; border:2px solid black; color:black;">INDICADORES DE SCRAP DE PLANTA - {mes_sel_nombre}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE SCRAP DE PLANTA - {mes_sel_nombre}</div>', unsafe_allow_html=True)
             
             if not df_mes_view.empty:
                 total_scrap_mes = df_mes_view['Observadas'].sum()
                 df_tabla_mes = df_mes_view.groupby('ORIGEN')['Observadas'].sum().reset_index()
                 df_tabla_mes['%'] = (df_tabla_mes['Observadas'] / total_scrap_mes) * 100 if total_scrap_mes > 0 else 0
                 
-                # Fila 1: Tabla, Gráfico Gral, Pie Chart
                 row1_m = st.columns([1, 1.5, 1.5])
                 
-                # Tabla Origen (Izquierda)
                 with row1_m[0].container(border=True):
-                    html_tb = f'<table style="width:100%; border-collapse: collapse; border: 2px solid black; font-family: Arial; font-size: 13px; text-align: center;">'
-                    html_tb += f'<tr style="background-color: #EAEDED;"><th style="border: 1px solid black; padding: 4px;">ORIGEN</th><th style="border: 1px solid black;">CANT</th><th style="border: 1px solid black;">%</th></tr>'
+                    html_tb = f'<table style="width:100%; border-collapse: collapse; border: 1px solid #475569; font-family: Arial; font-size: 13px; text-align: center; color: #F8FAFC;">'
+                    html_tb += f'<tr style="background-color: #334155;"><th style="border: 1px solid #475569; padding: 6px;">ORIGEN</th><th style="border: 1px solid #475569;">CANT</th><th style="border: 1px solid #475569;">%</th></tr>'
                     for _, row_tb in df_tabla_mes.sort_values('Observadas', ascending=False).iterrows():
-                        html_tb += f'<tr><td style="border: 1px solid black; padding: 4px;">{row_tb["ORIGEN"]}</td><td style="border: 1px solid black;">{int(row_tb["Observadas"])}</td><td style="border: 1px solid black;">{row_tb["%"]:.0f}%</td></tr>'
-                    html_tb += f'<tr style="background-color: #F1C40F; font-weight: bold;"><td style="border: 1px solid black; padding: 4px;">TOTAL</td><td style="border: 1px solid black;">{int(total_scrap_mes)}</td><td style="border: 1px solid black;">100%</td></tr>'
+                        html_tb += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Observadas"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
+                    html_tb += f'<tr style="background-color: #F59E0B; color: #000000; font-weight: bold;"><td style="border: 1px solid #475569; padding: 6px;">TOTAL</td><td style="border: 1px solid #475569;">{int(total_scrap_mes)}</td><td style="border: 1px solid #475569;">100%</td></tr>'
                     html_tb += '</table>'
                     st.markdown(html_tb, unsafe_allow_html=True)
                 
-                # Pie Chart (Centro)
                 with row1_m[1].container(border=True):
                     if total_scrap_mes > 0:
                         fig_pie = px.pie(df_tabla_mes, values='Observadas', names='ORIGEN', color_discrete_sequence=px.colors.qualitative.Pastel)
-                        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                        fig_pie.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
+                        fig_pie.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000"))
+                        fig_pie.update_layout(height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, paper_bgcolor='rgba(0,0,0,0)')
                         st.plotly_chart(fig_pie, use_container_width=True)
                     else:
                         st.info("Sin Scrap este mes")
 
-                # General Scrap (Derecha)
                 with row1_m[2].container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view, "SCRAP GENERAL", "#5D6D7E"), use_container_width=True)
+                    st.plotly_chart(plot_top10(df_mes_view, "SCRAP GENERAL", "#94A3B8"), use_container_width=True)
                 
-                # Cuadrícula Dinámica con Recuadros (Mensual)
                 st.markdown("<br>", unsafe_allow_html=True)
                 row_cols_m = st.columns(3)
                 
-                # Siempre mostrar RT primero si aplica
                 with row_cols_m[0].container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'RT'], "SCRAP RT", "#F39C12"), use_container_width=True)
+                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'RT'], "SCRAP RT", "#F59E0B"), use_container_width=True)
                 
                 c_idx_m, r_container_m = 1, row_cols_m
                 for i, orig in enumerate(origenes_productivos):
@@ -382,9 +461,9 @@ with tab_rt:
         with col_r1:
             with st.container(border=True):
                 fig_pct_rt = go.Figure()
-                fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#E67E22', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside'))
-                fig_pct_rt.add_hline(y=2.0, line_color="#C0392B", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%")
-                fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=20, l=20, r=20))
+                fig_pct_rt.add_trace(go.Bar(x=df_mes_completo_rt['Mes_Nombre'], y=df_mes_completo_rt['Pct_RT'], marker_color='#38BDF8', text=[f"{v:.2f}%" if v>0 else "" for v in df_mes_completo_rt['Pct_RT']], textposition='outside', textfont=dict(color="#F8FAFC")))
+                fig_pct_rt.add_hline(y=2.0, line_color="#EF4444", line_width=2, line_dash="solid", annotation_text="Meta: 2.00%", annotation_font=dict(color="#EF4444"))
+                fig_pct_rt.update_layout(title="<b>% DE RT MENSUAL</b>", height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(gridcolor="#334155"), margin=dict(t=40, b=20, l=20, r=20))
                 st.plotly_chart(fig_pct_rt, use_container_width=True)
             
         with col_r2:
