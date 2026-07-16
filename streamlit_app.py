@@ -16,7 +16,7 @@ MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 # Configuración de página
 st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
 
-# Estilos CSS - Modo Oscuro Azul Marino / Slate (Con contraste total en Tabs y Widgets)
+# Estilos CSS - Modo Oscuro Azul Marino / Slate
 st.markdown("""
 <style>
     /* Fondo principal azul marino oscuro */
@@ -341,29 +341,42 @@ lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 # --- BLOQUE DE DIAGNÓSTICO TEMPORAL PARA MÁQUINAS SQL ---
 if not df_sql.empty:
     with st.expander("🕵️ DIAGNÓSTICO: Ver todas las máquinas que llegan de SQL y sus piezas"):
-        st.markdown("Este cuadro muestra todas las máquinas que hay en la base de datos de Wiidem **antes de aplicar los filtros por Área**. Te ayudará a detectar qué máquinas ocultas suman piezas:")
+        st.markdown("Este cuadro muestra todas las máquinas que hay en la base de datos de Wiidem **antes de aplicar los filtros por Área**:")
         resumen_maquinas = df_sql.groupby('Máquina')[['Buenas', 'Retrabajo', 'Observadas']].sum()
         resumen_maquinas['Total_Piezas'] = resumen_maquinas.sum(axis=1)
         st.dataframe(resumen_maquinas.sort_values('Total_Piezas', ascending=False), use_container_width=True)
 # --------------------------------------------------------
 
+# --- LÓGICA DE CLASIFICACIÓN BLINDADA (SIN PÉRDIDA DE PIEZAS) ---
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
     if 'RT' in m or 'RETRABAJO' in m: return None 
+    
     if area == "ESTAMPADO (Líneas)":
+        # Evaluamos primero la Línea 1.5 para que no caiga dentro de Línea 1
+        if 'LINEA 1.5' in m or 'LÍNEA 1.5' in m: return 'LINEA 1.5'
         if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
         if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
         if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
+        if 'LINEA 4' in m or 'LÍNEA 4' in m: return 'LINEA 4' # <-- NUEVO
         if 'MATRIC' in m: return 'MATRICERIA'
         if 'FIREWALL' in m: return 'FIREWALL'
         
-        # --- MEJORA: Para no perder piezas de Wiidem, si no es una celda de soldadura lo enviamos a "OTRAS ESTAMPADO" ---
+        # Todo lo que no sea explícitamente de Soldadura se retiene en Estampado
         if not any(k in m for k in ['CELL', 'CELDA', 'PRP', 'SOLD']):
             return 'OTRAS ESTAMPADO'
         return None
     else:
-        if 'CELL' in m or 'CELDA' in m: return m 
-        if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
+        # ÁREA: SOLDADURA (Celdas y PRP)
+        if 'CELL' in m or 'CELDA' in m: 
+            # Limpiamos "FAMMA" del nombre para que los gráficos queden más prolijos (ej: "CELL 16")
+            return m.replace(' FAMMA', '').replace('FAMMA', '').strip()
+        if 'PRP' in m or 'SOLD' in m: 
+            return 'EQUIPOS PRP'
+            
+        # Todo lo que no sea explícitamente de Estampado se retiene en Soldadura
+        if not any(k in m for k in ['LINEA', 'LÍNEA', 'MATRIC', 'FIREWALL', 'PRENSA']):
+            return 'OTRAS SOLDADURA'
         return None
 
 # PROCESAMIENTO ESTRICTO
@@ -382,7 +395,7 @@ df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if not df_sq
 
 hoy = pd.to_datetime("today")
 if anio_sel == hoy.year and not df_full_raw.empty:
-    # --- AJUSTADO: Se excluye el mes en curso (<) para mostrar únicamente los meses ya completados ---
+    # --- AJUSTADO: Se excluye el mes actual (<) para trabajar solo con meses cerrados ---
     df_full_raw = df_full_raw[df_full_raw['Mes'] < hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
@@ -391,7 +404,8 @@ if ignorar_h and not df_full.empty:
     df_full = filtrar_piezas_h(df_full, lista_piezas_h, threshold=0.85)
 
 origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan'] if not df_full.empty else []
-colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#95A5A6"]
+# Paleta de 12 colores para soportar sin repetir todas las nuevas líneas y celdas
+colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#F1C40F", "#34495E", "#16A085", "#8E44AD", "#D35400", "#27AE60"]
 
 # --- PESTAÑAS PRINCIPALES ---
 tab_scrap, tab_rt = st.tabs(["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"])
