@@ -88,42 +88,58 @@ def filtrar_piezas_h(df, lista_h):
 def plot_top10(df_subset, titulo, color_bar, metrica):
     fig = go.Figure()
     if df_subset is None or df_subset.empty:
-        fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))])
+        fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))], margin=dict(t=40, b=10, l=10, r=10))
         return fig
+        
     df_top = df_subset.groupby('Código')[metrica].sum().reset_index().sort_values(metrica, ascending=True).tail(10)
     df_top = df_top[df_top[metrica] > 0]
     if df_top.empty: return fig
+    
     fig = px.bar(df_top, x=metrica, y='Código', orientation='h', text=metrica)
     fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
-    fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), xaxis=dict(visible=False, range=[0, df_top[metrica].max() * 1.3]), yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40))
+    fig.update_layout(
+        title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), 
+        height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+        font=dict(color="#F8FAFC"), 
+        xaxis=dict(visible=False, range=[0, df_top[metrica].max() * 1.3]), 
+        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='total ascending'), 
+        margin=dict(t=40, b=10, l=10, r=40)
+    )
     return fig
 
 def plot_top10_stacked(df_subset, titulo, metrica):
     fig = go.Figure()
     if df_subset is None or df_subset.empty:
-        fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))])
+        fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(visible=False), yaxis=dict(visible=False), annotations=[dict(text="Sin registros", xref="paper", yref="paper", showarrow=False, font=dict(size=14, color="#94A3B8"))], margin=dict(t=40, b=10, l=10, r=10))
         return fig
         
-    df_totals = df_subset.groupby('Código')[metrica].sum().reset_index().sort_values(metrica, ascending=True).tail(10)
-    df_totals = df_totals[df_totals[metrica] > 0]
-    if df_totals.empty: return fig
+    df_totals = df_subset.groupby('Código')[metrica].sum().reset_index()
+    top_codes = df_totals.nlargest(10, metrica)['Código'].tolist()
     
-    top_codes = df_totals['Código'].tolist()
+    if not top_codes: return fig
+    
     df_plot = df_subset[df_subset['Código'].isin(top_codes)].groupby(['Código', 'FUENTE'])[metrica].sum().reset_index()
     df_plot = df_plot[df_plot[metrica] > 0]
-    df_plot['Código'] = pd.Categorical(df_plot['Código'], categories=top_codes, ordered=True)
-    df_plot = df_plot.sort_values('Código')
     
-    # Asignamos Azul para Línea y Naranja para Formulario
     color_map = {'Línea': '#3498DB', 'Formulario': '#F97316'}
     
     fig = px.bar(df_plot, x=metrica, y='Código', color='FUENTE', orientation='h', text=metrica, color_discrete_map=color_map, barmode='stack')
     fig.update_traces(textposition='inside', textfont=dict(color='#F8FAFC', size=11, shadow="auto"), width=0.6)
     
-    for _, row in df_totals.iterrows():
-        fig.add_annotation(x=row[metrica], y=row['Código'], text=f"<b>{int(row[metrica])}</b>", showarrow=False, xanchor='left', xshift=5, font=dict(color="#2ECC71", size=13))
+    # Anotaciones con la suma total al lado de la barra
+    for code in top_codes:
+        total_val = df_totals[df_totals['Código'] == code][metrica].values[0]
+        fig.add_annotation(x=total_val, y=code, text=f"<b>{int(total_val)}</b>", showarrow=False, xanchor='left', xshift=5, font=dict(color="#2ECC71", size=13))
 
-    fig.update_layout(title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), xaxis=dict(visible=False, range=[0, df_totals[metrica].max() * 1.3]), yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40), legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#F8FAFC")))
+    fig.update_layout(
+        title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=13)), 
+        height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
+        font=dict(color="#F8FAFC"), 
+        xaxis=dict(visible=False, range=[0, df_totals[df_totals['Código'].isin(top_codes)][metrica].max() * 1.3]), 
+        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='total ascending'), 
+        margin=dict(t=40, b=10, l=10, r=40), 
+        legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#F8FAFC"))
+    )
     return fig
 
 # Filtros principales
@@ -156,7 +172,7 @@ def fetch_annual_data(anio, planta):
     except Exception as e:
         st.error(f"Error conectando a SQL ({conn_name}): {e}"); return pd.DataFrame()
 
-# LECTURA CORREGIDA Y BLINDADA DE GOOGLE SHEETS
+# LECTURA DE GOOGLE SHEETS
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
     try:
@@ -170,23 +186,20 @@ def fetch_gs_annual(gs_url, anio):
         cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA', 'PIEZA']) and not any(ex in c.upper() for ex in exclude_keywords)]
         df_gs['Código'] = df_gs[cols_piezas].astype(str).replace(r'^\s*$', pd.NA, regex=True).replace('nan', pd.NA).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
             
-        # Extracción segura de números para Scrap y OK, ignorando textos extra
         c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper() and 'MOTIVO' not in c.upper()), None)
         c_rt = next((c for c in df_gs.columns if ('OK' in c.upper() or 'RETRABAJO' in c.upper() or 'CANTIDAD RT' in c.upper()) and 'MOTIVO' not in c.upper()), None)
             
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_scrap else 0
         df_gs['Retrabajo'] = pd.to_numeric(df_gs[c_rt].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_rt else 0
         
-        # Extracción segura de la FECHA: Se lee 'dayfirst=True' para que meses como Julio (13/07) no rompan el script
+        # IMPORTANTE: dayfirst=True permite que fechas como 13/07/2026 entren como Julio
         c_fecha = next((c for c in df_gs.columns if 'MARCA TEMPORAL' in c.upper() or 'TIMESTAMP' in c.upper()), None)
         if not c_fecha: c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper()), None)
-        
         df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], errors='coerce', dayfirst=True) if c_fecha else pd.NaT
             
         c_cliente = next((c for c in df_gs.columns if 'MAQUINA DE ORIGEN' in c.upper() or 'MÁQUINA DE ORIGEN' in c.upper()), None)
         if not c_cliente: c_cliente = next((c for c in df_gs.columns if 'MAQUINA' in c.upper() or 'MÁQUINA' in c.upper()), None)
         if not c_cliente: c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
-        
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
@@ -205,10 +218,15 @@ df_sql = fetch_annual_data(anio_sel, planta_sel)
 df_gs = fetch_gs_annual(url_gs_activa, anio_sel)
 lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
+# Lógica de Orígenes Libre: Se respetan los nombres de las máquinas, sólo se divide por área.
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
     if 'RT' in m or 'RETRABAJO' in m: return 'SECTOR RT' 
+    
+    m_clean = m.replace(' FAMMA', '').replace('FAMMA', '').replace(' FUMISCOR', '').replace('FUMISCOR', '').replace(' FUMIS', '').strip()
+    
     if area == "ESTAMPADO (Líneas)":
+        if any(k in m for k in ['CELL', 'CELDA', 'PRP', 'SOLD']): return None # Es de soldadura, se ignora aquí
         if 'LINEA 1.5' in m or 'LÍNEA 1.5' in m: return 'LINEA 1.5'
         if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
         if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
@@ -216,13 +234,11 @@ def asignar_y_filtrar_origen_sql(m, area):
         if 'LINEA 4' in m or 'LÍNEA 4' in m: return 'LINEA 4'
         if 'MATRIC' in m: return 'MATRICERIA'
         if 'FIREWALL' in m: return 'FIREWALL'
-        if not any(k in m for k in ['CELL', 'CELDA', 'PRP', 'SOLD']): return 'OTRAS ESTAMPADO'
-        return None
+        return m_clean # Si es una prensa u otra, lo devuelve intacto para que no desaparezca
     else:
-        if 'CELL' in m or 'CELDA' in m: return m.replace(' FAMMA', '').replace('FAMMA', '').replace(' FUMISCOR', '').replace('FUMISCOR', '').strip()
+        if any(k in m for k in ['LINEA', 'LÍNEA', 'MATRIC', 'FIREWALL', 'PRENSA']): return None # Es de estampado, se ignora aquí
         if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
-        if not any(k in m for k in ['LINEA', 'LÍNEA', 'MATRIC', 'FIREWALL', 'PRENSA']): return 'OTRAS SOLDADURA'
-        return None
+        return m_clean # Celda 10, etc se mantienen
 
 # PROCESAMIENTO
 df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
@@ -350,7 +366,6 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     else: st.info("Sin Scrap este mes")
 
                 with row1_m[2].container(border=True):
-                    # Solo Top 10 mensual de Línea para no estorbar visualmente, porque abajo pondremos los 3 cuadros principales
                     st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'SECTOR RT'], "TOP SCRAP (SECTOR RT)", "#F59E0B", 'Observadas'), use_container_width=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -485,7 +500,5 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                 with cm3_rt.container(border=True):
                     st.plotly_chart(plot_top10_stacked(df_mes_view_rt, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
 
-            else:
-                st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
-    else:
-        st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
+            else: st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
+    else: st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
