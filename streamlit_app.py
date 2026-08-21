@@ -6,7 +6,8 @@ import re
 import difflib
 
 # URLs fijas de Google Sheets
-URL_GS_RT = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvMgYjRp-16M1210hMU/edit?resourcekey=&gid=1779842834#gid=1779842834"
+URL_GS_RT_FAMMA = "https://docs.google.com/spreadsheets/d/1l6a6ab82p_Nm0g0RdprVR7AWSvMgYjRp-16M1210hMU/edit?resourcekey=&gid=1779842834#gid=1779842834"
+URL_GS_RT_FUMISCOR = "https://docs.google.com/spreadsheets/d/1pyVCOSGtypIW-4eW1HEFXSdICybNgtPFGtRKb4bsyDI/edit?resourcekey=&gid=1999259605#gid=1999259605"
 URL_GS_H = "https://docs.google.com/spreadsheets/d/1mLnIC8B7mwmFZwthO0A32H3ZFfXSKt7vIUMBXEZxDJ0/edit?gid=0#gid=0"
 
 MESES_MAP = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO', 
@@ -14,7 +15,7 @@ MESES_MAP = {1:'ENERO', 2:'FEBRERO', 3:'MARZO', 4:'ABRIL', 5:'MAYO', 6:'JUNIO',
 MESES_REVERSE_MAP = {v: k for k, v in MESES_MAP.items()}
 
 # Configuración de página
-st.set_page_config(page_title="FAMMA - Panel de Calidad", layout="wide")
+st.set_page_config(page_title="Panel de Calidad", layout="wide")
 
 # Estilos CSS - Modo Oscuro Azul Marino / Slate
 st.markdown("""
@@ -50,8 +51,6 @@ st.markdown("""
     }
     
     /* --- CORRECCIÓN DE CONTRASTE EN WIDGETS --- */
-    
-    /* 1. Botón Actualizar Datos */
     div[data-testid="stButton"] button {
         background-color: #1E293B !important;
         color: #F8FAFC !important;
@@ -66,16 +65,8 @@ st.markdown("""
         border-color: #38BDF8 !important;
         box-shadow: 0 0 8px rgba(56, 189, 248, 0.4) !important;
     }
-    div[data-testid="stButton"] p {
-        color: inherit !important;
-    }
-
-    /* 2. Textos generales y etiquetas */
-    label, .stMarkdown p, .stText, span { 
-        color: #F8FAFC !important; 
-    }
-
-    /* 3. Radio Buttons */
+    div[data-testid="stButton"] p { color: inherit !important; }
+    label, .stMarkdown p, .stText, span { color: #F8FAFC !important; }
     div[data-testid="stRadio"] > div { 
         background-color: #1E293B !important; 
         padding: 10px !important; 
@@ -89,34 +80,18 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 15px !important;
     }
-
-    /* 4. Selectbox */
     div[data-baseweb="select"] > div {
         background-color: #1E293B !important;
         color: #F8FAFC !important;
         border-color: #334155 !important;
     }
-    div[data-baseweb="select"] span, div[data-baseweb="select"] div {
-        color: #F8FAFC !important;
-    }
-    ul[data-baseweb="menu"] {
-        background-color: #1E293B !important;
-        border: 1px solid #334155 !important;
-    }
-    li[data-baseweb="option"] {
-        color: #F8FAFC !important;
-        background-color: #1E293B !important;
-    }
+    div[data-baseweb="select"] span, div[data-baseweb="select"] div { color: #F8FAFC !important; }
+    ul[data-baseweb="menu"] { background-color: #1E293B !important; border: 1px solid #334155 !important; }
+    li[data-baseweb="option"] { color: #F8FAFC !important; background-color: #1E293B !important; }
     li[data-baseweb="option"]:hover, li[data-baseweb="option"][aria-selected="true"] {
-        background-color: #334155 !important;
-        color: #38BDF8 !important;
+        background-color: #334155 !important; color: #38BDF8 !important;
     }
-
-    /* 5. Checkbox */
-    div[data-testid="stCheckbox"] label span,
-    div[data-testid="stCheckbox"] label p {
-        color: #F8FAFC !important;
-    }
+    div[data-testid="stCheckbox"] label span, div[data-testid="stCheckbox"] label p { color: #F8FAFC !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -188,7 +163,7 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
         return df[~df['Código'].isin(codes_to_remove)].copy()
     return df
 
-# Gráficos Top 10 con textos claros - AHORA GENÉRICO PARA SCRAP O RETRABAJO
+# Gráficos Top 10
 def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
     fig = go.Figure()
     empty_layout = lambda t: fig.update_layout(
@@ -221,10 +196,24 @@ def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
     )
     return fig
 
-# Encabezado principal y botón
+
+# Filtros principales
+col_f0, col_f1, col_f2, col_f3 = st.columns([1.2, 1, 2.5, 1.5])
+with col_f0:
+    planta_sel = st.selectbox("**🏢 Planta:**", ["FAMMA", "FUMISCOR"])
+with col_f1:
+    anio_sel = st.selectbox("**📅 Año:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
+with col_f2:
+    area_sel = st.radio("**⚙️ Área:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
+with col_f3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    ignorar_h = st.checkbox("🚫 **Ignorar Piezas H**", value=False, help="Excluye las piezas conectándose en vivo al Google Sheets de Piezas H.")
+
+
+# Encabezado principal y botón (se actualiza el título dinámicamente)
 col_title, col_btn = st.columns([5, 1])
 with col_title:
-    st.markdown('<div class="header-style">📊 RESUMEN SCRAP Y RT - FAMMA</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="header-style">📊 RESUMEN SCRAP Y RT - {planta_sel}</div>', unsafe_allow_html=True)
 with col_btn:
     if st.button("🔄 Actualizar Datos", use_container_width=True):
         st.cache_data.clear()
@@ -233,9 +222,11 @@ with col_btn:
 st.divider()
 
 @st.cache_data(ttl=300)
-def fetch_annual_data(anio):
+def fetch_annual_data(anio, planta):
     try:
-        conn = st.connection("wii_bi", type="sql")
+        conn_name = "famma" if planta == "FAMMA" else "fumiscor"
+        conn = st.connection(conn_name, type="sql")
+        
         q_anual = f"""
             SELECT p.Month as Mes, ISNULL(c.Name, 'OTRA') as Máquina, ISNULL(pr.Code, 'SIN CÓDIGO') as Código, 
                    SUM(p.Good) as Buenas, SUM(p.Rework) as Retrabajo, SUM(p.Scrap) as Observadas
@@ -249,7 +240,7 @@ def fetch_annual_data(anio):
                 df_anual[col] = pd.to_numeric(df_anual[col], errors='coerce').fillna(0)
         return df_anual
     except Exception as e:
-        st.error(f"Error en SQL: {e}")
+        st.error(f"Error conectando a {planta} ({conn_name}): {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
@@ -263,13 +254,22 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(csv_url)
         df_gs.columns = df_gs.columns.str.strip()
         
-        cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA'])]
+        # Filtro estricto para extraer las verdaderas columnas de "Pieza" excluyendo metadatos.
+        # Esto soluciona los saltos lógicos de FUMISCOR donde existen multiples columnas llamadas "PIEZA" o "PIEZAS"
+        exclude_keywords = ['SCRAP', 'OK', 'ORIGEN', 'TRAZABILIDAD']
+        cols_piezas = [
+            c for c in df_gs.columns 
+            if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA', 'PIEZA']) 
+            and not any(ex in c.upper() for ex in exclude_keywords)
+        ]
+        
         if cols_piezas:
+            # Agrupa todas las columnas 'PIEZA' en una sola (bfill) para ignorar los vacíos generados por el branch del Forms
             df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO')
         else:
             df_gs['Código'] = "SIN CÓDIGO"
             
-        c_scrap = next((c for c in df_gs.columns if 'PIEZA SCRAP' in c.upper() or 'CANTIDAD DE PIEZA SCRAP' in c.upper()), None)
+        c_scrap = next((c for c in df_gs.columns if 'PIEZA SCRAP' in c.upper() or 'CANTIDAD DE PIEZA SCRAP' in c.upper() or 'PIEZAS SCRAP' in c.upper()), None)
         if not c_scrap:
             c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper() and 'RT' not in c.upper()), None)
             
@@ -282,7 +282,8 @@ def fetch_gs_annual(gs_url, anio):
         else:
             df_gs['Fecha_DT'] = pd.NaT
             
-        c_cliente = next((c for c in ['Cliente', 'CLIENTE'] if c in df_gs.columns), None)
+        # Ampliamos la búsqueda del origen/cliente para atrapar las columnas específicas de FUMISCOR
+        c_cliente = next((c for c in ['Cliente', 'CLIENTE', 'PLANTA ORIGEN DE LA PIEZA', 'MAQUINA DE ORIGEN DE LA PIEZA', 'MAQUINA'] if c in df_gs.columns), None)
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
@@ -299,19 +300,12 @@ def fetch_gs_annual(gs_url, anio):
     except Exception as e:
         return pd.DataFrame()
 
-# Filtros principales con Checkbox de Piezas H
-col_f1, col_f2, col_f3 = st.columns([1, 2.5, 1.5])
-with col_f1:
-    anio_sel = st.selectbox("**Año de Análisis:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
-with col_f2:
-    area_sel = st.radio("**Área de Producción:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
-with col_f3:
-    st.markdown("<br>", unsafe_allow_html=True)
-    ignorar_h = st.checkbox("🚫 **Ignorar Piezas H**", value=False, help="Excluye las piezas conectándose en vivo al Google Sheets de Piezas H.")
+# Determinamos URL dinámicamente según planta seleccionada
+url_gs_activa = URL_GS_RT_FAMMA if planta_sel == "FAMMA" else URL_GS_RT_FUMISCOR
 
-# Carga de datos
-df_sql = fetch_annual_data(anio_sel)
-df_gs = fetch_gs_annual(URL_GS_RT, anio_sel)
+# Carga de datos usando la Planta seleccionada y la URL de Google Sheets correspondiente
+df_sql = fetch_annual_data(anio_sel, planta_sel)
+df_gs = fetch_gs_annual(url_gs_activa, anio_sel)
 lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
 # --- LÓGICA DE CLASIFICACIÓN BLINDADA ---
@@ -333,7 +327,7 @@ def asignar_y_filtrar_origen_sql(m, area):
         return None
     else:
         if 'CELL' in m or 'CELDA' in m: 
-            return m.replace(' FAMMA', '').replace('FAMMA', '').strip()
+            return m.replace(' FAMMA', '').replace('FAMMA', '').replace('FUMISCOR', '').strip()
         if 'PRP' in m or 'SOLD' in m: 
             return 'EQUIPOS PRP'
             
@@ -368,7 +362,7 @@ if ignorar_h and not df_full.empty:
 origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'RT' and str(o) != 'nan'] if not df_full.empty else []
 colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#F1C40F", "#34495E", "#16A085", "#8E44AD", "#D35400", "#27AE60"]
 
-# --- REEMPLAZO DE PESTAÑAS (TABS) POR RADIO BUTTONS PARA CONTRASTE PERFECTO ---
+# --- RADIO BUTTONS PARA SELECCIÓN DE PANEL ---
 st.markdown("<br>", unsafe_allow_html=True)
 panel_principal = st.radio(
     "**Seleccione el Panel de Análisis:**", 
@@ -529,7 +523,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                 st.info(f"No hay registros de Scrap para el mes de {mes_sel_nombre}.")
 
     else:
-        st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada.")
+        st.info(f"No hay registros de Scrap en la base de datos para el año {anio_sel} en el área seleccionada en {planta_sel}.")
 
 # ====== PANEL RETRABAJO (RT) ======
 elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
@@ -684,4 +678,4 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
             else:
                 st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
     else:
-        st.info(f"No hay registros de Retrabajo en la base de datos para el año {anio_sel} en el área seleccionada.")
+        st.info(f"No hay registros de Retrabajo en la base de datos para el año {anio_sel} en el área seleccionada en {planta_sel}.")
