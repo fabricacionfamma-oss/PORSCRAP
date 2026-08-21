@@ -54,7 +54,6 @@ def render_dark_table(df):
     html += '</table><br>'
     st.markdown(html, unsafe_allow_html=True)
 
-# Lógica general
 def unificar_codigos_similares(df):
     if df.empty or 'Código' not in df.columns: return df
     unique_codes = sorted(df['Código'].dropna().unique(), key=len)
@@ -157,7 +156,7 @@ def fetch_annual_data(anio, planta):
     except Exception as e:
         st.error(f"Error conectando a SQL ({conn_name}): {e}"); return pd.DataFrame()
 
-# LECTURA DE GOOGLE SHEETS
+# LECTURA CORREGIDA Y BLINDADA DE GOOGLE SHEETS
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
     try:
@@ -167,19 +166,27 @@ def fetch_gs_annual(gs_url, anio):
         df_gs = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_match.group(1)}/export?format=csv&gid={gid}")
         df_gs.columns = df_gs.columns.str.strip()
         
-        cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA', 'PIEZA']) and not any(ex in c.upper() for ex in ['SCRAP', 'OK', 'ORIGEN', 'TRAZABILIDAD'])]
-        df_gs['Código'] = df_gs[cols_piezas].replace(r'^\s*$', pd.NA, regex=True).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
+        exclude_keywords = ['SCRAP', 'OK', 'ORIGEN', 'TRAZABILIDAD', 'MOTIVO', 'MAQUINA', 'PLANTA', 'HORAS', 'OPERARIO']
+        cols_piezas = [c for c in df_gs.columns if any(p in c.upper() for p in ['FIAT', 'RENAULT', 'NISSAN', 'QUE PIEZA', 'PIEZA']) and not any(ex in c.upper() for ex in exclude_keywords)]
+        df_gs['Código'] = df_gs[cols_piezas].astype(str).replace(r'^\s*$', pd.NA, regex=True).replace('nan', pd.NA).bfill(axis=1).iloc[:, 0].fillna('SIN CÓDIGO') if cols_piezas else "SIN CÓDIGO"
             
-        c_scrap = next((c for c in df_gs.columns if c.upper().strip() in ['PIEZAS SCRAP', 'CANTIDAD DE PIEZA SCRAP', 'PIEZA SCRAP', 'SCRAP']), None)
-        c_rt = next((c for c in df_gs.columns if c.upper().strip() in ['PIEZAS OK', 'CANTIDAD RT', 'RETRABAJO', 'RT']), None)
+        # Extracción segura de números para Scrap y OK, ignorando textos extra
+        c_scrap = next((c for c in df_gs.columns if 'SCRAP' in c.upper() and 'MOTIVO' not in c.upper()), None)
+        c_rt = next((c for c in df_gs.columns if ('OK' in c.upper() or 'RETRABAJO' in c.upper() or 'CANTIDAD RT' in c.upper()) and 'MOTIVO' not in c.upper()), None)
             
-        df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_scrap else 0
-        df_gs['Retrabajo'] = pd.to_numeric(df_gs[c_rt].astype(str).str.replace(',', ''), errors='coerce').fillna(0) if c_rt else 0
+        df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_scrap else 0
+        df_gs['Retrabajo'] = pd.to_numeric(df_gs[c_rt].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_rt else 0
         
-        c_fecha = next((c for c in ['Fecha', 'Marca temporal', 'FECHA'] if c in df_gs.columns), None)
-        df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], format='%m/%d/%Y', errors='coerce').fillna(pd.to_datetime(df_gs[c_fecha], errors='coerce')) if c_fecha else pd.NaT
+        # Extracción segura de la FECHA: Se lee 'dayfirst=True' para que meses como Julio (13/07) no rompan el script
+        c_fecha = next((c for c in df_gs.columns if 'MARCA TEMPORAL' in c.upper() or 'TIMESTAMP' in c.upper()), None)
+        if not c_fecha: c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper()), None)
+        
+        df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], errors='coerce', dayfirst=True) if c_fecha else pd.NaT
             
-        c_cliente = next((c for c in ['Cliente', 'CLIENTE', 'PLANTA ORIGEN DE LA PIEZA', 'MAQUINA DE ORIGEN DE LA PIEZA', 'MAQUINA'] if c in df_gs.columns), None)
+        c_cliente = next((c for c in df_gs.columns if 'MAQUINA DE ORIGEN' in c.upper() or 'MÁQUINA DE ORIGEN' in c.upper()), None)
+        if not c_cliente: c_cliente = next((c for c in df_gs.columns if 'MAQUINA' in c.upper() or 'MÁQUINA' in c.upper()), None)
+        if not c_cliente: c_cliente = next((c for c in df_gs.columns if 'CLIENTE' in c.upper()), None)
+        
         df_gs['Cliente'] = df_gs[c_cliente].fillna('OTRO') if c_cliente else 'OTRO'
         
         df_gs = df_gs[df_gs['Fecha_DT'].dt.year == anio].copy()
@@ -191,7 +198,7 @@ def fetch_gs_annual(gs_url, anio):
             df_gs['Buenas'] = 0
             return df_gs[['Mes', 'Máquina', 'Código', 'Buenas', 'Retrabajo', 'Observadas']]
         return pd.DataFrame()
-    except: return pd.DataFrame()
+    except Exception as e: return pd.DataFrame()
 
 url_gs_activa = URL_GS_RT_FAMMA if planta_sel == "FAMMA" else URL_GS_RT_FUMISCOR
 df_sql = fetch_annual_data(anio_sel, planta_sel)
@@ -233,7 +240,6 @@ if not df_gs_fil.empty:
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if (not df_sql_fil.empty or not df_gs_fil.empty) else pd.DataFrame()
 
 hoy = pd.to_datetime("today")
-# CORRECCIÓN VITAL: Ahora es <= hoy.month para que no borre los datos cargados este mismo mes
 if anio_sel == hoy.year and not df_full_raw.empty: df_full_raw = df_full_raw[df_full_raw['Mes'] <= hoy.month]
 
 df_full = unificar_codigos_similares(df_full_raw)
@@ -287,7 +293,6 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
             with c2.container(border=True):
                 st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Observadas'), use_container_width=True)
             with c3.container(border=True):
-                # Usamos el gráfico apilado para ver ambos colores en la misma barra
                 st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Observadas'), use_container_width=True)
                 
             st.divider()
@@ -345,7 +350,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     else: st.info("Sin Scrap este mes")
 
                 with row1_m[2].container(border=True):
-                    # Solo Top 10 mensual de Línea para no estorbar, porque abajo pondremos los 3 cuadros
+                    # Solo Top 10 mensual de Línea para no estorbar visualmente, porque abajo pondremos los 3 cuadros principales
                     st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'SECTOR RT'], "TOP SCRAP (SECTOR RT)", "#F59E0B", 'Observadas'), use_container_width=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -407,7 +412,6 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
             with c2_rt.container(border=True):
                 st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
             with c3_rt.container(border=True):
-                # Gráfico apilado
                 st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
 
             st.divider()
@@ -479,7 +483,9 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                 with cm2_rt.container(border=True):
                     st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
                 with cm3_rt.container(border=True):
-                    # Gráfico apilado
                     st.plotly_chart(plot_top10_stacked(df_mes_view_rt, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
-            else: st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
-    else: st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
+
+            else:
+                st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
+    else:
+        st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
