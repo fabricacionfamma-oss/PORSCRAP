@@ -95,6 +95,8 @@ def plot_top10(df_subset, titulo, color_bar, metrica):
     df_top = df_top[df_top[metrica] > 0]
     if df_top.empty: return fig
     
+    top_codes = df_top['Código'].tolist()
+    
     fig = px.bar(df_top, x=metrica, y='Código', orientation='h', text=metrica)
     fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
     fig.update_layout(
@@ -102,7 +104,7 @@ def plot_top10(df_subset, titulo, color_bar, metrica):
         height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
         font=dict(color="#F8FAFC"), 
         xaxis=dict(visible=False, range=[0, df_top[metrica].max() * 1.3]), 
-        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='total ascending'), 
+        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='array', categoryarray=top_codes), 
         margin=dict(t=40, b=10, l=10, r=40)
     )
     return fig
@@ -126,7 +128,6 @@ def plot_top10_stacked(df_subset, titulo, metrica):
     fig = px.bar(df_plot, x=metrica, y='Código', color='FUENTE', orientation='h', text=metrica, color_discrete_map=color_map, barmode='stack')
     fig.update_traces(textposition='inside', textfont=dict(color='#F8FAFC', size=11, shadow="auto"), width=0.6)
     
-    # Anotaciones con la suma total al lado de la barra
     for code in top_codes:
         total_val = df_totals[df_totals['Código'] == code][metrica].values[0]
         fig.add_annotation(x=total_val, y=code, text=f"<b>{int(total_val)}</b>", showarrow=False, xanchor='left', xshift=5, font=dict(color="#2ECC71", size=13))
@@ -136,27 +137,11 @@ def plot_top10_stacked(df_subset, titulo, metrica):
         height=300, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
         font=dict(color="#F8FAFC"), 
         xaxis=dict(visible=False, range=[0, df_totals[df_totals['Código'].isin(top_codes)][metrica].max() * 1.3]), 
-        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='total ascending'), 
+        yaxis=dict(title="", tickfont=dict(size=10, color="#F8FAFC"), categoryorder='array', categoryarray=top_codes[::-1]), 
         margin=dict(t=40, b=10, l=10, r=40), 
         legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#F8FAFC"))
     )
     return fig
-
-# Filtros principales
-col_f0, col_f1, col_f2, col_f3 = st.columns([1.2, 1, 2.5, 1.5])
-with col_f0: planta_sel = st.selectbox("**🏢 Planta:**", ["FAMMA", "FUMISCOR"])
-with col_f1: anio_sel = st.selectbox("**📅 Año:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
-with col_f2: area_sel = st.radio("**⚙️ Área:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
-with col_f3: 
-    st.markdown("<br>", unsafe_allow_html=True)
-    ignorar_h = st.checkbox("🚫 **Ignorar Piezas H**", value=False)
-
-col_title, col_btn = st.columns([5, 1])
-with col_title: st.markdown(f'<div class="header-style">📊 RESUMEN SCRAP Y RT - {planta_sel}</div>', unsafe_allow_html=True)
-with col_btn:
-    if st.button("🔄 Actualizar Datos", use_container_width=True): st.cache_data.clear(); st.rerun()
-
-st.divider()
 
 # CONEXIÓN SQL DINÁMICA
 @st.cache_data(ttl=300)
@@ -192,7 +177,6 @@ def fetch_gs_annual(gs_url, anio):
         df_gs['Observadas'] = pd.to_numeric(df_gs[c_scrap].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_scrap else 0
         df_gs['Retrabajo'] = pd.to_numeric(df_gs[c_rt].astype(str).str.replace(',', '.').str.extract(r'(\d+\.?\d*)', expand=False), errors='coerce').fillna(0) if c_rt else 0
         
-        # IMPORTANTE: dayfirst=True permite que fechas como 13/07/2026 entren como Julio
         c_fecha = next((c for c in df_gs.columns if 'MARCA TEMPORAL' in c.upper() or 'TIMESTAMP' in c.upper()), None)
         if not c_fecha: c_fecha = next((c for c in df_gs.columns if 'FECHA' in c.upper()), None)
         df_gs['Fecha_DT'] = pd.to_datetime(df_gs[c_fecha], errors='coerce', dayfirst=True) if c_fecha else pd.NaT
@@ -213,65 +197,106 @@ def fetch_gs_annual(gs_url, anio):
         return pd.DataFrame()
     except Exception as e: return pd.DataFrame()
 
-url_gs_activa = URL_GS_RT_FAMMA if planta_sel == "FAMMA" else URL_GS_RT_FUMISCOR
-df_sql = fetch_annual_data(anio_sel, planta_sel)
-df_gs = fetch_gs_annual(url_gs_activa, anio_sel)
-lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
-
-# Lógica de Orígenes Libre: Se respetan los nombres de las máquinas, sólo se divide por área.
 def asignar_y_filtrar_origen_sql(m, area):
-    m = str(m).strip().upper()
-    if 'RT' in m or 'RETRABAJO' in m: return 'SECTOR RT' 
-    
-    m_clean = m.replace(' FAMMA', '').replace('FAMMA', '').replace(' FUMISCOR', '').replace('FUMISCOR', '').replace(' FUMIS', '').strip()
+    m_upper = str(m).strip().upper()
+    if 'RT' in m_upper or 'RETRABAJO' in m_upper: return 'SECTOR RT' 
+    m_clean = m_upper.replace(' FAMMA', '').replace('FAMMA', '').replace(' FUMISCOR', '').replace('FUMISCOR', '').replace(' FUMIS', '').strip()
+    kw_soldadura = ['CELL', 'CELDA', 'PRP', 'SOLD', 'ROBOT', 'PUNTO', 'PROY', 'ENSAMBLE', 'ARMADO', 'MONTAJE', 'MIG', 'MAG', 'TIG']
+    kw_estampado = ['LINEA', 'LÍNEA', 'PRENSA', 'MATRIC', 'FIREWALL', 'BALANCIN', 'CORTE', 'BLANQUEO', 'ESTAMPA', 'TANDEM', 'GUILLOTINA', 'BALANCÍN']
+    is_sold = any(k in m_upper for k in kw_soldadura) or re.search(r'\bC\d+', m_upper)
+    is_est  = any(k in m_upper for k in kw_estampado) or re.search(r'\bP\d+', m_upper)
     
     if area == "ESTAMPADO (Líneas)":
-        if any(k in m for k in ['CELL', 'CELDA', 'PRP', 'SOLD']): return None # Es de soldadura, se ignora aquí
-        if 'LINEA 1.5' in m or 'LÍNEA 1.5' in m: return 'LINEA 1.5'
-        if 'LINEA 1' in m or 'LÍNEA 1' in m: return 'LINEA 1'
-        if 'LINEA 2' in m or 'LÍNEA 2' in m: return 'LINEA 2'
-        if 'LINEA 3' in m or 'LÍNEA 3' in m: return 'LINEA 3'
-        if 'LINEA 4' in m or 'LÍNEA 4' in m: return 'LINEA 4'
-        if 'MATRIC' in m: return 'MATRICERIA'
-        if 'FIREWALL' in m: return 'FIREWALL'
-        return m_clean # Si es una prensa u otra, lo devuelve intacto para que no desaparezca
-    else:
-        if any(k in m for k in ['LINEA', 'LÍNEA', 'MATRIC', 'FIREWALL', 'PRENSA']): return None # Es de estampado, se ignora aquí
-        if 'PRP' in m or 'SOLD' in m: return 'EQUIPOS PRP'
-        return m_clean # Celda 10, etc se mantienen
+        if is_sold: return None
+        if 'LINEA 1.5' in m_upper or 'LÍNEA 1.5' in m_upper: return 'LINEA 1.5'
+        if 'LINEA 1' in m_upper or 'LÍNEA 1' in m_upper: return 'LINEA 1'
+        if 'LINEA 2' in m_upper or 'LÍNEA 2' in m_upper: return 'LINEA 2'
+        if 'LINEA 3' in m_upper or 'LÍNEA 3' in m_upper: return 'LINEA 3'
+        if 'LINEA 4' in m_upper or 'LÍNEA 4' in m_upper: return 'LINEA 4'
+        if 'MATRIC' in m_upper: return 'MATRICERIA'
+        if 'FIREWALL' in m_upper: return 'FIREWALL'
+        return m_clean 
+    else: 
+        if is_est: return None 
+        if 'PRP' in m_upper: return 'EQUIPOS PRP'
+        return m_clean 
 
-# PROCESAMIENTO
-df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
-if not df_sql_fil.empty:
-    df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel))
-    df_sql_fil = df_sql_fil[(df_sql_fil['ORIGEN'].notnull()) & (df_sql_fil['ORIGEN'] != 'SECTOR RT')]
-    df_sql_fil['FUENTE'] = 'Línea'
+# ==========================================
+# ⚙️ PANEL DE CONTROL UNIFICADO
+# ==========================================
+st.markdown('<div class="header-style">📊 PANEL DE CALIDAD: SCRAP Y RETRABAJO</div>', unsafe_allow_html=True)
 
-df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
-if not df_gs_fil.empty:
-    df_gs_fil['Código'] = df_gs_fil['Código'].str.strip().str.upper()
-    df_gs_fil['ORIGEN'] = df_gs_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel)).fillna('SECTOR RT')
-    df_gs_fil['FUENTE'] = 'Formulario'
+with st.container(border=True):
+    st.markdown('<div style="color:#38BDF8; font-weight:bold; font-size: 16px; margin-bottom:10px;">⚙️ CONFIGURACIÓN DEL TABLERO</div>', unsafe_allow_html=True)
+    
+    # Fila 1: Origen de datos
+    c1, c2, c3, c4 = st.columns([1.5, 1, 2.5, 1.5])
+    with c1: planta_sel = st.selectbox("**🏢 Planta:**", ["FAMMA", "FUMISCOR"])
+    with c2: anio_sel = st.selectbox("**📅 Año:**", range(2023, pd.to_datetime("today").year + 2), index=pd.to_datetime("today").year-2023)
+    with c3: area_sel = st.radio("**⚙️ Área:**", ["ESTAMPADO (Líneas)", "SOLDADURA (Celdas y PRP)"], horizontal=True)
+    with c4: 
+        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+        ignorar_h = st.checkbox("🚫 Ignorar Piezas H", value=False)
+        if st.button("🔄 Actualizar Datos", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
-df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if (not df_sql_fil.empty or not df_gs_fil.empty) else pd.DataFrame()
+    # --- CARGA DE DATOS ---
+    url_gs_activa = URL_GS_RT_FAMMA if planta_sel == "FAMMA" else URL_GS_RT_FUMISCOR
+    df_sql = fetch_annual_data(anio_sel, planta_sel)
+    df_gs = fetch_gs_annual(url_gs_activa, anio_sel)
+    lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
-hoy = pd.to_datetime("today")
-if anio_sel == hoy.year and not df_full_raw.empty: df_full_raw = df_full_raw[df_full_raw['Mes'] <= hoy.month]
+    df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
+    if not df_sql_fil.empty:
+        df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel))
+        df_sql_fil = df_sql_fil[df_sql_fil['ORIGEN'].notnull()]
+        df_sql_fil['FUENTE'] = 'Línea'
 
-df_full = unificar_codigos_similares(df_full_raw)
-if ignorar_h and not df_full.empty: df_full = filtrar_piezas_h(df_full, lista_piezas_h)
+    df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
+    if not df_gs_fil.empty:
+        df_gs_fil['Código'] = df_gs_fil['Código'].str.strip().str.upper()
+        df_gs_fil['ORIGEN'] = df_gs_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel))
+        df_gs_fil = df_gs_fil[df_gs_fil['ORIGEN'].notnull()]
+        df_gs_fil['FUENTE'] = 'Formulario'
 
-st.markdown("<br>", unsafe_allow_html=True)
-panel_principal = st.radio("**Seleccione el Panel de Análisis:**", ["🔴 MATRIZ DE SCRAP", "🟠 MATRIZ DE RETRABAJO (RT)"], horizontal=True, label_visibility="collapsed")
+    df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if (not df_sql_fil.empty or not df_gs_fil.empty) else pd.DataFrame()
 
-# ====== PANEL SCRAP ======
-if panel_principal == "🔴 MATRIZ DE SCRAP":
-    if not df_full.empty:
-        col_t1, col_t2 = st.columns([1, 2])
-        with col_t1: vista_scrap = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True, key="radio_vista_scrap")
-        st.divider()
+    hoy = pd.to_datetime("today")
+    if anio_sel == hoy.year and not df_full_raw.empty: df_full_raw = df_full_raw[df_full_raw['Mes'] <= hoy.month]
 
-        if vista_scrap == "📊 Acumulado Anual":
+    df_full = unificar_codigos_similares(df_full_raw)
+    if ignorar_h and not df_full.empty: df_full = filtrar_piezas_h(df_full, lista_piezas_h)
+
+    # Fila 2: Filtros de Visualización
+    st.markdown("<hr style='margin: 10px 0; border-color: #334155;'>", unsafe_allow_html=True)
+    c5, c6, c7 = st.columns([1.5, 1.5, 2])
+    with c5: panel_principal = st.radio("**Indicador a analizar:**", ["🔴 SCRAP", "🟠 RETRABAJO (RT)"], horizontal=True)
+    with c6: vista_sel = st.radio("**Vista temporal:**", ["📊 Acumulado Anual", "📆 Detalle Mensual"], horizontal=True)
+    with c7:
+        meses_disp = sorted(df_full['Mes'].unique().tolist()) if not df_full.empty else []
+        mes_nombres = [MESES_MAP[m] for m in meses_disp]
+        if vista_sel == "📆 Detalle Mensual":
+            if mes_nombres:
+                mes_sel_nombre = st.selectbox("**Seleccione el Mes:**", mes_nombres, index=len(mes_nombres)-1)
+                mes_sel_int = MESES_REVERSE_MAP[mes_sel_nombre]
+            else:
+                st.info("Sin meses disponibles")
+                mes_sel_nombre = None
+        else:
+            mes_sel_nombre = None
+
+st.divider()
+
+# ==========================================
+# 📊 RENDERIZADO DE RESULTADOS
+# ==========================================
+if not df_full.empty:
+    origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if str(o) != 'nan']
+    colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#F1C40F", "#34495E", "#16A085", "#8E44AD", "#D35400", "#27AE60"]
+
+    if panel_principal == "🔴 SCRAP":
+        if vista_sel == "📊 Acumulado Anual":
             df_mes = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
             df_mes['Total_Piezas'] = df_mes['Buenas'] + df_mes['Retrabajo'] + df_mes['Scrap']
             df_mes['Pct_Scrap'] = (df_mes['Scrap'] / df_mes['Total_Piezas'].replace(0, 1)) * 100
@@ -287,11 +312,10 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                 matriz_general.loc['% SCRAP', row['Mes_Nombre']] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_Scrap']:.2f}%".replace('.', ',')
             render_dark_table(matriz_general)
 
-            origenes = sorted(df_full['ORIGEN'].unique().tolist())
-            matriz_origen = pd.DataFrame(index=origenes)
+            matriz_origen = pd.DataFrame(index=origenes_productivos)
             for m in range(1, 13):
                 total_mes_scrap = df_mes_completo[df_mes_completo['Mes'] == m]['Scrap'].values[0]
-                for orig in origenes:
+                for orig in origenes_productivos:
                     val = df_full[(df_full['ORIGEN'] == orig) & (df_full['Mes'] == m)]['Observadas'].sum()
                     pct = (val / total_mes_scrap * 100) if total_mes_scrap > 0 else 0
                     matriz_origen.loc[orig, MESES_MAP[m]] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
@@ -301,15 +325,11 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
 
             st.divider()
             
-            # --- 3 CUADROS DE BARRAS CLAROS (LÍNEA | FORMULARIO | COMBINADO APILADO) ---
             st.markdown('<div class="sub-header">TOP 10 SCRAP ANUAL - LÍNEA VS FORMULARIO</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
-            with c1.container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Observadas'), use_container_width=True)
-            with c2.container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Observadas'), use_container_width=True)
-            with c3.container(border=True):
-                st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Observadas'), use_container_width=True)
+            with c1.container(border=True): st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Observadas'), use_container_width=True)
+            with c2.container(border=True): st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Observadas'), use_container_width=True)
+            with c3.container(border=True): st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Observadas'), use_container_width=True)
                 
             st.divider()
 
@@ -330,16 +350,9 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     fig_bar.update_layout(title=dict(font=dict(color="#F8FAFC", size=15)), height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), xaxis=dict(title="", tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20), legend=dict(title=dict(text="<b>ORIGEN</b>", font=dict(color="#F8FAFC")), font=dict(color="#F8FAFC")))
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-        else:
-            meses_disp = sorted(df_full['Mes'].unique().tolist())
-            mes_nombres = [MESES_MAP[m] for m in meses_disp]
-            col_sel_mes, _ = st.columns([1, 4])
-            with col_sel_mes: mes_sel_nombre = st.selectbox("**Seleccione el Mes:**", mes_nombres, index=len(mes_nombres)-1, key="sel_mes_scrap")
-            
-            mes_sel_int = MESES_REVERSE_MAP[mes_sel_nombre]
+        elif vista_sel == "📆 Detalle Mensual" and mes_sel_nombre:
             df_mes_view = df_full[df_full['Mes'] == mes_sel_int].copy()
-            
-            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE SCRAP DE PLANTA - {mes_sel_nombre}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE SCRAP - {mes_sel_nombre}</div>', unsafe_allow_html=True)
             
             if not df_mes_view.empty:
                 total_scrap_mes = df_mes_view['Observadas'].sum()
@@ -369,27 +382,16 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     st.plotly_chart(plot_top10(df_mes_view[df_mes_view['ORIGEN'] == 'SECTOR RT'], "TOP SCRAP (SECTOR RT)", "#F59E0B", 'Observadas'), use_container_width=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                
-                # --- 3 CUADROS DE BARRAS CLAROS (LÍNEA | FORMULARIO | COMBINADO APILADO) ---
                 st.markdown('<div class="sub-header">TOP 10 SCRAP (MENSUAL) - LÍNEA VS FORMULARIO</div>', unsafe_allow_html=True)
                 cm1, cm2, cm3 = st.columns(3)
-                with cm1.container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Observadas'), use_container_width=True)
-                with cm2.container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view[df_mes_view['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Observadas'), use_container_width=True)
-                with cm3.container(border=True):
-                    st.plotly_chart(plot_top10_stacked(df_mes_view, "TOTAL COMBINADO", 'Observadas'), use_container_width=True)
-            else: st.info(f"No hay registros de Scrap para el mes de {mes_sel_nombre}.")
-    else: st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
+                with cm1.container(border=True): st.plotly_chart(plot_top10(df_mes_view[df_mes_view['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Observadas'), use_container_width=True)
+                with cm2.container(border=True): st.plotly_chart(plot_top10(df_mes_view[df_mes_view['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Observadas'), use_container_width=True)
+                with cm3.container(border=True): st.plotly_chart(plot_top10_stacked(df_mes_view, "TOTAL COMBINADO", 'Observadas'), use_container_width=True)
+            else: st.info(f"No hay registros de Scrap para {mes_sel_nombre}.")
 
-# ====== PANEL RETRABAJO (RT) ======
-elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
-    if not df_full.empty:
-        col_t1_rt, col_t2_rt = st.columns([1, 2])
-        with col_t1_rt: vista_rt = st.radio("**Seleccione Vista:**", ["📆 Detalle Mensual (Dashboard Excel)", "📊 Acumulado Anual"], horizontal=True, key="radio_vista_rt")
-        st.divider()
-
-        if vista_rt == "📊 Acumulado Anual":
+    # ====== PANEL RETRABAJO (RT) ======
+    elif panel_principal == "🟠 RETRABAJO (RT)":
+        if vista_sel == "📊 Acumulado Anual":
             df_mes_rt = df_full.groupby('Mes').agg(Buenas=('Buenas', 'sum'), Retrabajo=('Retrabajo', 'sum'), Scrap=('Observadas', 'sum')).reset_index()
             df_mes_rt['Total_Piezas'] = df_mes_rt['Buenas'] + df_mes_rt['Retrabajo'] + df_mes_rt['Scrap']
             df_mes_rt['Pct_RT'] = (df_mes_rt['Retrabajo'] / df_mes_rt['Total_Piezas'].replace(0, 1)) * 100
@@ -405,11 +407,10 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                 matriz_rt.loc['% RT', row['Mes_Nombre']] = "0,00%" if row['Total_Piezas'] == 0 else f"{row['Pct_RT']:.2f}%".replace('.', ',')
             render_dark_table(matriz_rt)
             
-            origenes_rt = sorted([o for o in df_full['ORIGEN'].unique() if pd.notnull(o) and str(o) != 'nan'])
-            matriz_origen_rt = pd.DataFrame(index=origenes_rt)
+            matriz_origen_rt = pd.DataFrame(index=origenes_productivos)
             for m in range(1, 13):
                 total_mes_rt_val = df_mes_completo_rt[df_mes_completo_rt['Mes'] == m]['Retrabajo'].values[0]
-                for orig in origenes_rt:
+                for orig in origenes_productivos:
                     val = df_full[(df_full['ORIGEN'] == orig) & (df_full['Mes'] == m)]['Retrabajo'].sum()
                     pct = (val / total_mes_rt_val * 100) if total_mes_rt_val > 0 else 0
                     matriz_origen_rt.loc[orig, MESES_MAP[m]] = f"{int(val)}  |  {pct:.0f}%" if val > 0 else "-"
@@ -419,15 +420,11 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
 
             st.divider()
 
-            # --- 3 CUADROS DE BARRAS CLAROS (LÍNEA | FORMULARIO | COMBINADO APILADO) ---
             st.markdown('<div class="sub-header">TOP 10 RETRABAJO ANUAL - LÍNEA VS FORMULARIO</div>', unsafe_allow_html=True)
             c1_rt, c2_rt, c3_rt = st.columns(3)
-            with c1_rt.container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Retrabajo'), use_container_width=True)
-            with c2_rt.container(border=True):
-                st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
-            with c3_rt.container(border=True):
-                st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
+            with c1_rt.container(border=True): st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Retrabajo'), use_container_width=True)
+            with c2_rt.container(border=True): st.plotly_chart(plot_top10(df_full[df_full['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
+            with c3_rt.container(border=True): st.plotly_chart(plot_top10_stacked(df_full, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
 
             st.divider()
             
@@ -448,16 +445,9 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                     fig_bar_rt.update_layout(title=dict(font=dict(color="#F8FAFC", size=15)), height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC"), yaxis=dict(title="Cantidad Piezas RT", gridcolor="#334155", tickfont=dict(color="#F8FAFC")), xaxis=dict(title="", tickfont=dict(color="#F8FAFC")), margin=dict(t=40, b=20, l=20, r=20), legend=dict(title=dict(text="<b>ORIGEN</b>", font=dict(color="#F8FAFC")), font=dict(color="#F8FAFC")))
                     st.plotly_chart(fig_bar_rt, use_container_width=True)
 
-        else:
-            meses_disp_rt = sorted(df_full['Mes'].unique().tolist())
-            mes_nombres_rt = [MESES_MAP[m] for m in meses_disp_rt]
-            col_sel_mes_rt, _ = st.columns([1, 4])
-            with col_sel_mes_rt: mes_sel_nombre_rt = st.selectbox("**Seleccione el Mes:**", mes_nombres_rt, index=len(mes_nombres_rt)-1, key="sel_mes_rt")
-            
-            mes_sel_int_rt = MESES_REVERSE_MAP[mes_sel_nombre_rt]
-            df_mes_view_rt = df_full[df_full['Mes'] == mes_sel_int_rt].copy()
-            
-            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE RETRABAJO - {mes_sel_nombre_rt}</div>', unsafe_allow_html=True)
+        elif vista_sel == "📆 Detalle Mensual" and mes_sel_nombre:
+            df_mes_view_rt = df_full[df_full['Mes'] == mes_sel_int].copy()
+            st.markdown(f'<div class="sub-header" style="text-align:center; background-color:#1E293B; padding:8px; border:1px solid #38BDF8; border-radius:6px; color:#F8FAFC;">INDICADORES DE RETRABAJO - {mes_sel_nombre}</div>', unsafe_allow_html=True)
             
             if not df_mes_view_rt.empty:
                 total_rt_mes = df_mes_view_rt['Retrabajo'].sum()
@@ -490,15 +480,12 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # --- 3 CUADROS DE BARRAS CLAROS (LÍNEA | FORMULARIO | COMBINADO APILADO) ---
                 st.markdown('<div class="sub-header">TOP 10 RETRABAJO (MENSUAL) - LÍNEA VS FORMULARIO</div>', unsafe_allow_html=True)
                 cm1_rt, cm2_rt, cm3_rt = st.columns(3)
-                with cm1_rt.container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Retrabajo'), use_container_width=True)
-                with cm2_rt.container(border=True):
-                    st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
-                with cm3_rt.container(border=True):
-                    st.plotly_chart(plot_top10_stacked(df_mes_view_rt, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
+                with cm1_rt.container(border=True): st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['FUENTE'] == 'Línea'], "SOLO LÍNEA (SQL)", "#3498DB", 'Retrabajo'), use_container_width=True)
+                with cm2_rt.container(border=True): st.plotly_chart(plot_top10(df_mes_view_rt[df_mes_view_rt['FUENTE'] == 'Formulario'], "SOLO FORMULARIO (GS)", "#F97316", 'Retrabajo'), use_container_width=True)
+                with cm3_rt.container(border=True): st.plotly_chart(plot_top10_stacked(df_mes_view_rt, "TOTAL COMBINADO", 'Retrabajo'), use_container_width=True)
 
-            else: st.info(f"No hay registros de Retrabajo para el mes de {mes_sel_nombre_rt}.")
-    else: st.info(f"No hay registros en la base de datos para el año {anio_sel} en la planta {planta_sel}.")
+            else: st.info(f"No hay registros de Retrabajo para {mes_sel_nombre}.")
+else:
+    st.info(f"No hay registros en la base de datos para la configuración seleccionada.")
