@@ -157,7 +157,7 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
 
 # Gráficos Top 10 con textos claros e IDENTIFICADOR DE FUENTE (Línea / Formulario)
 def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
-    # Detectar fuente de datos para colocarla en el título del gráfico
+    # Detectar fuente de datos para colocarla en el título del gráfico Top 10
     fuente_str = ""
     if df_subset is not None and not df_subset.empty and 'FUENTE' in df_subset.columns:
         fuentes = df_subset['FUENTE'].dropna().unique()
@@ -435,9 +435,12 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                 
             with col_g2:
                 with st.container(border=True):
-                    df_g_origen = df_full.groupby(['Mes', 'ORIGEN'])['Observadas'].sum().reset_index()
+                    # Se agrupa por ORIGEN y FUENTE para mostrar de dónde viene en la barra anual
+                    df_g_origen = df_full.groupby(['Mes', 'ORIGEN', 'FUENTE'])['Observadas'].sum().reset_index()
                     df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
-                    fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN', barmode='group', title="<b>SCRAP POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+                    df_g_origen['ORIGEN_MOSTRAR'] = df_g_origen['ORIGEN'] + " {" + df_g_origen['FUENTE'] + "}"
+                    
+                    fig_bar = px.bar(df_g_origen, x='Mes_Nombre', y='Observadas', color='ORIGEN_MOSTRAR', barmode='group', title="<b>SCRAP POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
                     fig_bar.update_layout(
                         title=dict(font=dict(color="#F8FAFC", size=15)),
                         height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
@@ -480,7 +483,10 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
             
             if not df_mes_view.empty:
                 total_scrap_mes = df_mes_view['Observadas'].sum()
-                df_tabla_mes = df_mes_view.groupby('ORIGEN')['Observadas'].sum().reset_index()
+                
+                # Agrupamos por Origen y Fuente para el Detalle Mensual
+                df_tabla_mes = df_mes_view.groupby(['ORIGEN', 'FUENTE'])['Observadas'].sum().reset_index()
+                df_tabla_mes['ORIGEN_MOSTRAR'] = df_tabla_mes['ORIGEN'] + " {" + df_tabla_mes['FUENTE'] + "}"
                 df_tabla_mes['%'] = (df_tabla_mes['Observadas'] / total_scrap_mes) * 100 if total_scrap_mes > 0 else 0
                 
                 row1_m = st.columns([1, 1.5, 1.5])
@@ -489,17 +495,18 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                     html_tb = f'<table style="width:100%; border-collapse: collapse; border: 1px solid #475569; font-family: Arial; font-size: 13px; text-align: center; color: #F8FAFC;">'
                     html_tb += f'<tr style="background-color: #334155;"><th style="border: 1px solid #475569; padding: 6px;">ORIGEN</th><th style="border: 1px solid #475569;">CANT</th><th style="border: 1px solid #475569;">%</th></tr>'
                     for _, row_tb in df_tabla_mes.sort_values('Observadas', ascending=False).iterrows():
-                        html_tb += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Observadas"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
+                        html_tb += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN_MOSTRAR"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Observadas"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
                     html_tb += f'<tr style="background-color: #F59E0B; color: #000000; font-weight: bold;"><td style="border: 1px solid #475569; padding: 6px;">TOTAL</td><td style="border: 1px solid #475569;">{int(total_scrap_mes)}</td><td style="border: 1px solid #475569;">100%</td></tr>'
                     html_tb += '</table>'
                     st.markdown(html_tb, unsafe_allow_html=True)
                 
                 with row1_m[1].container(border=True):
                     if total_scrap_mes > 0:
-                        fig_pie = px.pie(df_tabla_mes, values='Observadas', names='ORIGEN', color_discrete_sequence=px.colors.qualitative.Pastel)
+                        fig_pie = px.pie(df_tabla_mes, values='Observadas', names='ORIGEN_MOSTRAR', color_discrete_sequence=px.colors.qualitative.Pastel)
                         fig_pie.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000", size=12))
                         fig_pie.update_layout(
-                            height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, 
+                            title=dict(text="<b>DISTRIBUCIÓN POR ORIGEN</b>", font=dict(color="#F8FAFC", size=14)),
+                            height=280, margin=dict(t=40, b=10, l=10, r=10), showlegend=False, 
                             paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC")
                         )
                         st.plotly_chart(fig_pie, use_container_width=True)
@@ -591,9 +598,12 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
             
             with col_r2:
                 with st.container(border=True):
-                    df_g_origen_rt = df_full.groupby(['Mes', 'ORIGEN'])['Retrabajo'].sum().reset_index()
+                    # Se agrupa por ORIGEN y FUENTE para el gráfico anual de RT
+                    df_g_origen_rt = df_full.groupby(['Mes', 'ORIGEN', 'FUENTE'])['Retrabajo'].sum().reset_index()
                     df_g_origen_rt['Mes_Nombre'] = df_g_origen_rt['Mes'].map(MESES_MAP)
-                    fig_bar_rt = px.bar(df_g_origen_rt, x='Mes_Nombre', y='Retrabajo', color='ORIGEN', barmode='group', title="<b>RETRABAJO POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
+                    df_g_origen_rt['ORIGEN_MOSTRAR'] = df_g_origen_rt['ORIGEN'] + " {" + df_g_origen_rt['FUENTE'] + "}"
+                    
+                    fig_bar_rt = px.bar(df_g_origen_rt, x='Mes_Nombre', y='Retrabajo', color='ORIGEN_MOSTRAR', barmode='group', title="<b>RETRABAJO POR ORÍGENES (Cantidad)</b>", color_discrete_sequence=px.colors.qualitative.Prism)
                     fig_bar_rt.update_layout(
                         title=dict(font=dict(color="#F8FAFC", size=15)),
                         height=350, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
@@ -640,7 +650,10 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
             
             if not df_mes_view_rt.empty:
                 total_rt_mes = df_mes_view_rt['Retrabajo'].sum()
-                df_tabla_mes_rt = df_mes_view_rt.groupby('ORIGEN')['Retrabajo'].sum().reset_index()
+                
+                # Agrupamos por Origen y Fuente para el Detalle Mensual RT
+                df_tabla_mes_rt = df_mes_view_rt.groupby(['ORIGEN', 'FUENTE'])['Retrabajo'].sum().reset_index()
+                df_tabla_mes_rt['ORIGEN_MOSTRAR'] = df_tabla_mes_rt['ORIGEN'] + " {" + df_tabla_mes_rt['FUENTE'] + "}"
                 df_tabla_mes_rt['%'] = (df_tabla_mes_rt['Retrabajo'] / total_rt_mes) * 100 if total_rt_mes > 0 else 0
                 
                 row1_m_rt = st.columns([1, 1.5, 1.5])
@@ -649,17 +662,18 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
                     html_tb_rt = f'<table style="width:100%; border-collapse: collapse; border: 1px solid #475569; font-family: Arial; font-size: 13px; text-align: center; color: #F8FAFC;">'
                     html_tb_rt += f'<tr style="background-color: #334155;"><th style="border: 1px solid #475569; padding: 6px;">ORIGEN</th><th style="border: 1px solid #475569;">CANT</th><th style="border: 1px solid #475569;">%</th></tr>'
                     for _, row_tb in df_tabla_mes_rt.sort_values('Retrabajo', ascending=False).iterrows():
-                        html_tb_rt += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Retrabajo"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
+                        html_tb_rt += f'<tr style="background-color: #1E293B;"><td style="border: 1px solid #475569; padding: 4px;">{row_tb["ORIGEN_MOSTRAR"]}</td><td style="border: 1px solid #475569;">{int(row_tb["Retrabajo"])}</td><td style="border: 1px solid #475569;">{row_tb["%"]:.0f}%</td></tr>'
                     html_tb_rt += f'<tr style="background-color: #F59E0B; color: #000000; font-weight: bold;"><td style="border: 1px solid #475569; padding: 6px;">TOTAL</td><td style="border: 1px solid #475569;">{int(total_rt_mes)}</td><td style="border: 1px solid #475569;">100%</td></tr>'
                     html_tb_rt += '</table>'
                     st.markdown(html_tb_rt, unsafe_allow_html=True)
                 
                 with row1_m_rt[1].container(border=True):
                     if total_rt_mes > 0:
-                        fig_pie_rt = px.pie(df_tabla_mes_rt, values='Retrabajo', names='ORIGEN', color_discrete_sequence=px.colors.qualitative.Pastel)
+                        fig_pie_rt = px.pie(df_tabla_mes_rt, values='Retrabajo', names='ORIGEN_MOSTRAR', color_discrete_sequence=px.colors.qualitative.Pastel)
                         fig_pie_rt.update_traces(textposition='inside', textinfo='percent+label', textfont=dict(color="#000000", size=12))
                         fig_pie_rt.update_layout(
-                            height=280, margin=dict(t=10, b=10, l=10, r=10), showlegend=False, 
+                            title=dict(text="<b>DISTRIBUCIÓN POR ORIGEN</b>", font=dict(color="#F8FAFC", size=14)),
+                            height=280, margin=dict(t=40, b=10, l=10, r=10), showlegend=False, 
                             paper_bgcolor='rgba(0,0,0,0)', font=dict(color="#F8FAFC")
                         )
                         st.plotly_chart(fig_pie_rt, use_container_width=True)
