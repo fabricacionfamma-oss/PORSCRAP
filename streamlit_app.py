@@ -20,71 +20,24 @@ st.set_page_config(page_title="Panel de Calidad", layout="wide")
 # Estilos CSS - Modo Oscuro Azul Marino / Slate
 st.markdown("""
 <style>
-    /* Fondo principal azul marino oscuro */
-    .stApp {
-        background-color: #0F172A !important;
-        color: #F8FAFC !important;
-    }
-    .header-style { 
-        font-size: 28px; 
-        font-weight: bold; 
-        color: #F8FAFC; 
-        margin-bottom: 10px; 
-    }
-    .sub-header { 
-        font-size: 20px; 
-        font-weight: bold; 
-        color: #38BDF8; 
-        margin-top: 15px; 
-        margin-bottom: 10px; 
-        text-transform: uppercase; 
-    }
-    hr { 
-        border-color: #334155 !important; 
-        margin-top: 1rem; 
-        margin-bottom: 1rem; 
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: #1E293B !important;
-        border: 1px solid #334155 !important;
-        border-radius: 8px;
-    }
+    .stApp { background-color: #0F172A !important; color: #F8FAFC !important; }
+    .header-style { font-size: 28px; font-weight: bold; color: #F8FAFC; margin-bottom: 10px; }
+    .sub-header { font-size: 20px; font-weight: bold; color: #38BDF8; margin-top: 15px; margin-bottom: 10px; text-transform: uppercase; }
+    hr { border-color: #334155 !important; margin-top: 1rem; margin-bottom: 1rem; }
+    div[data-testid="stVerticalBlockBorderWrapper"] { background-color: #1E293B !important; border: 1px solid #334155 !important; border-radius: 8px; }
     
-    /* --- CORRECCIÓN DE CONTRASTE EN WIDGETS --- */
-    div[data-testid="stButton"] button {
-        background-color: #1E293B !important;
-        color: #F8FAFC !important;
-        border: 1px solid #38BDF8 !important;
-        font-weight: bold !important;
-        border-radius: 6px !important;
-        transition: all 0.3s ease !important;
-    }
-    div[data-testid="stButton"] button:hover {
-        background-color: #0284C7 !important;
-        color: #FFFFFF !important;
-        border-color: #38BDF8 !important;
-        box-shadow: 0 0 8px rgba(56, 189, 248, 0.4) !important;
-    }
+    div[data-testid="stButton"] button { background-color: #1E293B !important; color: #F8FAFC !important; border: 1px solid #38BDF8 !important; font-weight: bold !important; border-radius: 6px !important; transition: all 0.3s ease !important; }
+    div[data-testid="stButton"] button:hover { background-color: #0284C7 !important; color: #FFFFFF !important; border-color: #38BDF8 !important; box-shadow: 0 0 8px rgba(56, 189, 248, 0.4) !important; }
     div[data-testid="stButton"] p { color: inherit !important; }
     label, .stMarkdown p, .stText, span { color: #F8FAFC !important; }
-    div[data-testid="stRadio"] > div { 
-        background-color: #1E293B !important; 
-        padding: 10px !important; 
-        border-radius: 8px !important; 
-        border: 1px solid #334155 !important; 
-    }
-    div[role="radiogroup"] label div p, div[role="radiogroup"] label div span, div[data-testid="stRadio"] label p {
-        color: #F8FAFC !important; font-weight: 700 !important; font-size: 15px !important;
-    }
-    div[data-baseweb="select"] > div {
-        background-color: #1E293B !important; color: #F8FAFC !important; border-color: #334155 !important;
-    }
+    
+    div[data-testid="stRadio"] > div { background-color: #1E293B !important; padding: 10px !important; border-radius: 8px !important; border: 1px solid #334155 !important; }
+    div[role="radiogroup"] label div p, div[role="radiogroup"] label div span, div[data-testid="stRadio"] label p { color: #F8FAFC !important; font-weight: 700 !important; font-size: 15px !important; }
+    div[data-baseweb="select"] > div { background-color: #1E293B !important; color: #F8FAFC !important; border-color: #334155 !important; }
     div[data-baseweb="select"] span, div[data-baseweb="select"] div { color: #F8FAFC !important; }
     ul[data-baseweb="menu"] { background-color: #1E293B !important; border: 1px solid #334155 !important; }
     li[data-baseweb="option"] { color: #F8FAFC !important; background-color: #1E293B !important; }
-    li[data-baseweb="option"]:hover, li[data-baseweb="option"][aria-selected="true"] {
-        background-color: #334155 !important; color: #38BDF8 !important;
-    }
+    li[data-baseweb="option"]:hover, li[data-baseweb="option"][aria-selected="true"] { background-color: #334155 !important; color: #38BDF8 !important; }
     div[data-testid="stCheckbox"] label span, div[data-testid="stCheckbox"] label p { color: #F8FAFC !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -155,19 +108,8 @@ def filtrar_piezas_h(df, lista_h, threshold=0.85):
         return df[~df['Código'].isin(codes_to_remove)].copy()
     return df
 
-# Gráficos Top 10 con textos claros e IDENTIFICADOR DE FUENTE (Línea / Formulario)
+# Gráficos Top 10 APILADOS para distinguir Línea vs Formulario
 def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
-    # Detectar fuente de datos para colocarla en el título del gráfico Top 10
-    fuente_str = ""
-    if df_subset is not None and not df_subset.empty and 'FUENTE' in df_subset.columns:
-        fuentes = df_subset['FUENTE'].dropna().unique()
-        if len(fuentes) == 1:
-            fuente_str = f" {{{fuentes[0]}}}"
-        elif len(fuentes) > 1:
-            fuente_str = f" {{{' & '.join(sorted(fuentes))}}}"
-            
-    titulo_final = f"{titulo}{fuente_str}"
-    
     fig = go.Figure()
     empty_layout = lambda t: fig.update_layout(
         title=dict(text=f"<b>{t}</b>", font=dict(color="#F8FAFC", size=14)), 
@@ -178,28 +120,55 @@ def plot_top10(df_subset, titulo, color_bar, metrica='Observadas'):
     )
     
     if df_subset is None or df_subset.empty:
-        empty_layout(titulo_final)
+        empty_layout(titulo)
         return fig
         
-    df_top = df_subset.groupby('Código')[metrica].sum().reset_index()
-    df_top = df_top[df_top[metrica] > 0].sort_values(metrica, ascending=True).tail(10)
+    # Agrupamos por código para sacar los 10 con mayores totales
+    df_totals = df_subset.groupby('Código')[metrica].sum().reset_index()
+    df_totals = df_totals[df_totals[metrica] > 0].sort_values(metrica, ascending=True).tail(10)
     
-    if df_top.empty:
-        empty_layout(titulo_final)
+    if df_totals.empty:
+        empty_layout(titulo)
         return fig
         
-    max_val = df_top[metrica].max()
-    fig = px.bar(df_top, x=metrica, y='Código', orientation='h', text=metrica)
-    fig.update_traces(marker_color=color_bar, textposition='outside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
+    max_val = df_totals[metrica].max()
+    top_codes = df_totals['Código'].tolist()
+    
+    # Preparamos los datos apilados por FUENTE para esos 10 códigos
+    df_plot = df_subset[df_subset['Código'].isin(top_codes)].groupby(['Código', 'FUENTE'])[metrica].sum().reset_index()
+    df_plot = df_plot[df_plot[metrica] > 0]
+    df_plot['Código'] = pd.Categorical(df_plot['Código'], categories=top_codes, ordered=True)
+    df_plot = df_plot.sort_values('Código')
+    
+    # Mapeamos colores: Formulario se verá en Naranja vibrante para destacarse del color base
+    color_map = {'Línea': color_bar, 'Formulario': '#F97316'}
+    
+    # Creamos el gráfico de barras apilado (stacked)
+    fig = px.bar(df_plot, x=metrica, y='Código', color='FUENTE', orientation='h', text=metrica,
+                 color_discrete_map=color_map, barmode='stack')
+    
+    # Los números de cada porción van por dentro
+    fig.update_traces(textposition='inside', textfont=dict(color='#F8FAFC', size=11), width=0.6)
+    
+    # Agregamos el TOTAL de la barra a la derecha por fuera
+    for _, row in df_totals.iterrows():
+        fig.add_annotation(
+            x=row[metrica], y=row['Código'],
+            text=f"<b>{int(row[metrica])}</b>",
+            showarrow=False, xanchor='left', xshift=5,
+            font=dict(color="#F8FAFC", size=12)
+        )
+
     fig.update_layout(
-        title=dict(text=f"<b>{titulo_final}</b>", font=dict(color="#F8FAFC", size=14)), 
+        title=dict(text=f"<b>{titulo}</b>", font=dict(color="#F8FAFC", size=14)), 
         height=280, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
         font=dict(color="#F8FAFC"), xaxis=dict(visible=False, range=[0, max_val * 1.3]), 
-        yaxis=dict(title="", tickfont=dict(size=11, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40)
+        yaxis=dict(title="", tickfont=dict(size=11, color="#F8FAFC")), margin=dict(t=40, b=10, l=10, r=40),
+        legend=dict(title="", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10, color="#F8FAFC"))
     )
     return fig
 
-# Filtros principales con Checkbox de Piezas H y Selector de PLANTA
+# Filtros principales
 col_f0, col_f1, col_f2, col_f3 = st.columns([1.2, 1, 2.5, 1.5])
 with col_f0:
     planta_sel = st.selectbox("**🏢 Planta:**", ["FAMMA", "FUMISCOR"])
@@ -210,7 +179,6 @@ with col_f2:
 with col_f3:
     st.markdown("<br>", unsafe_allow_html=True)
     ignorar_h = st.checkbox("🚫 **Ignorar Piezas H**", value=False, help="Excluye las piezas conectándose en vivo al Google Sheets de Piezas H.")
-
 
 # Encabezado principal dinámico
 col_title, col_btn = st.columns([5, 1])
@@ -223,12 +191,12 @@ with col_btn:
 
 st.divider()
 
-# CONEXIÓN SQL DINÁMICA (wii_bi = FAMMA | fumiscor = FUMISCOR)
+# CONEXIÓN SQL DINÁMICA (CORREGIDA A "famma" vs "fumiscor")
 @st.cache_data(ttl=300)
 def fetch_annual_data(anio, planta):
     try:
-        # Se conecta dependiendo de lo que elijas (usando los nombres de tu secrets.toml)
-        conn_name = "wii_bi" if planta == "FAMMA" else "fumiscor"
+        # Se conecta dependiendo de lo que elijas (usando exactamente los nombres de tu secrets.toml)
+        conn_name = "famma" if planta == "FAMMA" else "fumiscor"
         conn = st.connection(conn_name, type="sql")
         
         q_anual = f"""
@@ -247,7 +215,7 @@ def fetch_annual_data(anio, planta):
         st.error(f"Error conectando a SQL ({conn_name}): {e}")
         return pd.DataFrame()
 
-# LECTURA ADAPTADA DE GOOGLE SHEETS (FUNCIONA PARA AMBAS PLANTAS)
+# LECTURA ADAPTADA DE GOOGLE SHEETS
 @st.cache_data(ttl=300)
 def fetch_gs_annual(gs_url, anio):
     try:
@@ -309,7 +277,6 @@ df_sql = fetch_annual_data(anio_sel, planta_sel)
 df_gs = fetch_gs_annual(url_gs_activa, anio_sel)
 lista_piezas_h = fetch_piezas_h(URL_GS_H) if ignorar_h else []
 
-
 # --- LÓGICA DE CLASIFICACIÓN BLINDADA ---
 def asignar_y_filtrar_origen_sql(m, area):
     m = str(m).strip().upper()
@@ -342,14 +309,14 @@ df_sql_fil = df_sql.copy() if not df_sql.empty else pd.DataFrame()
 if not df_sql_fil.empty:
     df_sql_fil['ORIGEN'] = df_sql_fil['Máquina'].apply(lambda x: asignar_y_filtrar_origen_sql(x, area_sel))
     df_sql_fil = df_sql_fil[df_sql_fil['ORIGEN'].notnull()]
-    df_sql_fil['FUENTE'] = 'Línea' # Etiqueta para datos que vienen por la base de datos SQL
+    df_sql_fil['FUENTE'] = 'Línea' # Etiqueta SQL
 
 lista_blanca_sql = set(df_sql_fil['Código'].str.strip().str.upper().unique()) if not df_sql_fil.empty else set()
 
 df_gs_fil = df_gs.copy() if not df_gs.empty else pd.DataFrame()
 if not df_gs_fil.empty:
     df_gs_fil['Código'] = df_gs_fil['Código'].str.strip().str.upper()
-    df_gs_fil['FUENTE'] = 'Formulario' # Etiqueta para datos que vienen por Google Sheets
+    df_gs_fil['FUENTE'] = 'Formulario' # Etiqueta GS
 
 df_full_raw = pd.concat([df_sql_fil, df_gs_fil], ignore_index=True) if (not df_sql_fil.empty or not df_gs_fil.empty) else pd.DataFrame()
 
@@ -367,7 +334,7 @@ origenes_productivos = [o for o in sorted(df_full['ORIGEN'].unique()) if o != 'R
 colors = ["#2ECC71", "#3498DB", "#9B59B6", "#1ABC9C", "#E67E22", "#E74C3C", "#F1C40F", "#34495E", "#16A085", "#8E44AD", "#D35400", "#27AE60"]
 
 
-# --- REEMPLAZO DE PESTAÑAS (TABS) POR RADIO BUTTONS PARA CONTRASTE PERFECTO ---
+# --- SELECCIÓN DE PANELES ---
 st.markdown("<br>", unsafe_allow_html=True)
 panel_principal = st.radio(
     "**Seleccione el Panel de Análisis:**", 
@@ -435,7 +402,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
                 
             with col_g2:
                 with st.container(border=True):
-                    # Se agrupa por ORIGEN y FUENTE para mostrar de dónde viene en la barra anual
+                    # Para el gráfico anual, agrupamos por origen y también mostramos la fuente en la leyenda
                     df_g_origen = df_full.groupby(['Mes', 'ORIGEN', 'FUENTE'])['Observadas'].sum().reset_index()
                     df_g_origen['Mes_Nombre'] = df_g_origen['Mes'].map(MESES_MAP)
                     df_g_origen['ORIGEN_MOSTRAR'] = df_g_origen['ORIGEN'] + " {" + df_g_origen['FUENTE'] + "}"
@@ -484,7 +451,7 @@ if panel_principal == "🔴 MATRIZ DE SCRAP":
             if not df_mes_view.empty:
                 total_scrap_mes = df_mes_view['Observadas'].sum()
                 
-                # Agrupamos por Origen y Fuente para el Detalle Mensual
+                # Para el mensual unimos origen y fuente
                 df_tabla_mes = df_mes_view.groupby(['ORIGEN', 'FUENTE'])['Observadas'].sum().reset_index()
                 df_tabla_mes['ORIGEN_MOSTRAR'] = df_tabla_mes['ORIGEN'] + " {" + df_tabla_mes['FUENTE'] + "}"
                 df_tabla_mes['%'] = (df_tabla_mes['Observadas'] / total_scrap_mes) * 100 if total_scrap_mes > 0 else 0
@@ -598,7 +565,6 @@ elif panel_principal == "🟠 MATRIZ DE RETRABAJO (RT)":
             
             with col_r2:
                 with st.container(border=True):
-                    # Se agrupa por ORIGEN y FUENTE para el gráfico anual de RT
                     df_g_origen_rt = df_full.groupby(['Mes', 'ORIGEN', 'FUENTE'])['Retrabajo'].sum().reset_index()
                     df_g_origen_rt['Mes_Nombre'] = df_g_origen_rt['Mes'].map(MESES_MAP)
                     df_g_origen_rt['ORIGEN_MOSTRAR'] = df_g_origen_rt['ORIGEN'] + " {" + df_g_origen_rt['FUENTE'] + "}"
